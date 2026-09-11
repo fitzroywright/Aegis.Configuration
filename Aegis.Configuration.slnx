@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="Aegis.Configuration.Domain/Aegis.Configuration.Domain.csproj" />
+  <Project Path="Aegis.Configuration.Application/Aegis.Configuration.Application.csproj" />
+  <Project Path="Aegis.Configuration.Infrastructure/Aegis.Configuration.Infrastructure.csproj" />
+  <Project Path="Aegis.Configuration.Web/Aegis.Configuration.Web.csproj" />
+  <Project Path="Aegis.Configuration.Tests/Aegis.Configuration.Tests.csproj" />
+  <Project Path="../Common/Common.Secrets/Common.Secrets.csproj" />
+  <Project Path="../Common/Common.Diagnostics/Common.Diagnostics.csproj" />
+</Solution>
