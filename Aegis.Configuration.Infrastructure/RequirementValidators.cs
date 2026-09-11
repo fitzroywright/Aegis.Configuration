@@ -24,9 +24,14 @@ public sealed class HttpEndpointRequirementValidator(HttpClient httpClient) : IC
         if (!Uri.TryCreate(value, UriKind.Absolute, out Uri? uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
             return (false, "Endpoint URI is invalid.");
 
-        HttpEndpointDiagnosticCheck check = new($"configuration:{requirement.Id}", httpClient, uri);
+        HttpEndpointDiagnosticCheck check = new($"configuration:{requirement.Id}", uri, new FixedHttpClientFactory(httpClient));
         DiagnosticResult result = await check.RunAsync(cancellationToken);
         return (result.IsHealthy, result.Message);
+    }
+
+    private sealed class FixedHttpClientFactory(HttpClient client) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => client;
     }
 }
 
