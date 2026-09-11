@@ -1,21 +1,24 @@
 using System.Text.Encodings.Web;
-using System.Text.Json;
 using Aegis.Configuration.Application;
 using Aegis.Configuration.Domain;
 using Aegis.Configuration.Infrastructure;
+using Common.Secrets;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 string contractDirectory = builder.Configuration["AegisConfiguration:ContractDirectory"]
     ?? Path.Combine(builder.Environment.ContentRootPath, "contracts");
 
+builder.Services.AddCommonSecrets(builder.Configuration);
+builder.Services.AddCommonSecretsDiagnostics();
 builder.Services.AddSingleton<IConfigurationContractStore>(new DirectoryContractStore(contractDirectory));
-builder.Services.AddSingleton<ISecretValueResolver, NullSecretValueResolver>();
+builder.Services.AddSingleton<ISecretValueResolver, CommonSecretsValueResolver>();
 builder.Services.AddSingleton<IConfigurationValueResolver, RuntimeConfigurationValueResolver>();
 builder.Services.AddSingleton<IConfigurationRequirementValidator, UriRequirementValidator>();
 builder.Services.AddHttpClient<HttpEndpointRequirementValidator>();
 builder.Services.AddSingleton<IConfigurationRequirementValidator>(provider => provider.GetRequiredService<HttpEndpointRequirementValidator>());
 builder.Services.AddSingleton<IConfigurationRequirementValidator, TcpEndpointRequirementValidator>();
+builder.Services.AddSingleton<IConfigurationRequirementValidator, PostgreSqlRequirementValidator>();
 builder.Services.AddSingleton<ConfigurationEvaluator>();
 builder.Services.AddSingleton<CommissioningService>();
 
