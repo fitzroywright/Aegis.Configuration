@@ -1,20 +1,18 @@
-using Aegis.Configuration.Domain;
-
 namespace Aegis.Configuration.Application;
 
-public sealed record RemediationStep(int Order, string Target, string Action, string Reason, bool Critical);
-public sealed record RemediationPlan(DateTimeOffset CreatedAtUtc, IReadOnlyList<RemediationStep> Steps);
+public sealed record ConfigurationRemediationStep(int Order, string ApplicationId, string Action, string Reason, bool Critical);
+public sealed record ConfigurationRemediationPlan(DateTimeOffset CreatedAtUtc, IReadOnlyList<ConfigurationRemediationStep> Steps);
 
 public sealed class RemediationPlanner
 {
-    public RemediationPlan Build(OperationalRiskReport riskReport)
+    public ConfigurationRemediationPlan Build(ConfigurationRiskReport riskReport)
     {
-        List<RemediationStep> steps = [];
         int order = 1;
-        foreach (OperationalRiskItem item in riskReport.Items.Where(x => x.Level != OperationalRiskLevel.Healthy).OrderByDescending(x => x.Priority))
-        {
-            steps.Add(new(order++, item.ApplicationId, item.RecommendedAction, item.Cause, item.Level == OperationalRiskLevel.Critical));
-        }
+        ConfigurationRemediationStep[] steps = riskReport.Items
+            .Where(x => x.Level != ConfigurationRiskLevel.Healthy)
+            .OrderByDescending(x => x.Priority)
+            .Select(x => new ConfigurationRemediationStep(order++, x.ApplicationId, x.RecommendedAction, x.Cause, x.Level == ConfigurationRiskLevel.Critical))
+            .ToArray();
         return new(DateTimeOffset.UtcNow, steps);
     }
 }
