@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Encodings.Web;
 using Aegis.Configuration.Application;
 using Aegis.Configuration.Domain;
@@ -11,7 +13,9 @@ string instructionDirectory = builder.Configuration["AegisConfiguration:Instruct
 
 builder.Services.AddCommonSecrets(builder.Configuration);
 builder.Services.AddCommonSecretsDiagnostics();
-builder.Services.AddSingleton<IConfigurationContractStore>(new DirectoryContractStore(contractDirectory));
+DirectoryContractStore contractStore = new(contractDirectory);
+builder.Services.AddSingleton<IConfigurationContractStore>(contractStore);
+builder.Services.AddSingleton<IConfigurationContractRegistrationStore>(contractStore);
 builder.Services.AddSingleton<ICommissioningHistoryStore>(new JsonCommissioningHistoryStore(Path.Combine(dataDirectory, "commissioning-history.jsonl")));
 builder.Services.AddSingleton(new InstructionPackCatalog(instructionDirectory));
 builder.Services.AddSingleton<ISecretValueResolver, CommonSecretsValueResolver>();
@@ -46,6 +50,19 @@ app.MapGet("/", (FleetStatusCache cache, ConfigurationReadinessScorer scorer) =>
 
 app.MapPost("/verify", async (CommissioningService service, CommissioningRecorder recorder, FleetStatusCache cache, CancellationToken ct) => { IReadOnlyList<CommissioningSnapshot> snapshots = await service.EvaluateAllAsync(ct); foreach (CommissioningSnapshot snapshot in snapshots) await recorder.RecordAsync(snapshot, ct); cache.Replace(snapshots); return Results.Redirect("/"); });
 app.MapPost("/api/verify", async (CommissioningService service, CommissioningRecorder recorder, FleetStatusCache cache, CancellationToken ct) => { IReadOnlyList<CommissioningSnapshot> snapshots = await service.EvaluateAllAsync(ct); foreach (CommissioningSnapshot snapshot in snapshots) await recorder.RecordAsync(snapshot, ct); return Results.Ok(cache.Replace(snapshots)); });
+app.MapPost("/api/contracts/register", async (ApplicationConfigurationContract contract, HttpContext context, IConfigurationContractRegistrationStore store, ContractValidator validator, ISecretProvider secrets, CancellationToken ct) =>
+{
+    ContractValidationResult validation = validator.Validate(contract);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+
+    string providedKey = context.Request.Headers["X-Aegis-Configuration-Key"].FirstOrDefault() ?? string.Empty;
+    string secretName = $"aegis/configuration/registration/{contract.ApplicationId}";
+    string? expectedKey = await secrets.GetAsync(secretName, ct);
+    if (string.IsNullOrWhiteSpace(expectedKey) || !FixedTimeEquals(providedKey, expectedKey)) return Results.Unauthorized();
+
+    try { return Results.Ok(await store.RegisterAsync(contract, ct)); }
+    catch (InvalidDataException exception) { return Results.BadRequest(new { error = exception.Message }); }
+});
 app.MapGet("/api/fleet", (FleetStatusCache cache) => cache.Current is null ? Results.NoContent() : Results.Ok(cache.Current));
 app.MapGet("/api/contracts", async (IConfigurationContractStore store, CancellationToken ct) => Results.Ok(await store.LoadAllAsync(ct)));
 app.MapGet("/api/history", async (ICommissioningHistoryStore history, CancellationToken ct) => Results.Ok(await history.ReadAsync(null, ct)));
@@ -57,6 +74,13 @@ app.MapGet("/api/drift/{applicationId}", async (string applicationId, Commission
 app.MapPost("/api/contracts/validate", (ApplicationConfigurationContract contract, ContractValidator validator) => Results.Ok(validator.Validate(contract)));
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", service = "Aegis.Configuration" }));
 app.Run();
+
+static bool FixedTimeEquals(string left, string right)
+{
+    byte[] leftBytes = Encoding.UTF8.GetBytes(left);
+    byte[] rightBytes = Encoding.UTF8.GetBytes(right);
+    return leftBytes.Length == rightBytes.Length && CryptographicOperations.FixedTimeEquals(leftBytes, rightBytes);
+}
 
 static string RenderApplication(CommissioningSnapshot snapshot, ConfigurationReadinessScore score)
 {
