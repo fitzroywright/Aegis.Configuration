@@ -52,7 +52,7 @@ app.MapGet("/", (FleetStatusCache cache, ConfigurationReadinessScorer scorer) =>
 
 app.MapPost("/verify", async (CommissioningService service, CommissioningRecorder recorder, FleetStatusCache cache, CancellationToken ct) => { IReadOnlyList<CommissioningSnapshot> snapshots = await service.EvaluateAllAsync(ct); foreach (CommissioningSnapshot snapshot in snapshots) await recorder.RecordAsync(snapshot, ct); cache.Replace(snapshots); return Results.Redirect("/"); });
 app.MapPost("/api/verify", async (CommissioningService service, CommissioningRecorder recorder, FleetStatusCache cache, CancellationToken ct) => { IReadOnlyList<CommissioningSnapshot> snapshots = await service.EvaluateAllAsync(ct); foreach (CommissioningSnapshot snapshot in snapshots) await recorder.RecordAsync(snapshot, ct); return Results.Ok(cache.Replace(snapshots)); });
-app.MapPost("/api/contracts/register", async (ApplicationConfigurationContract contract, HttpContext context, IConfigurationContractRegistrationStore store, ContractValidator validator, ISecretProvider secrets, CancellationToken ct) =>
+app.MapPost("/api/contracts/register", async (ApplicationConfigurationContract contract, HttpContext context, IConfigurationContractRegistrationStore store, ContractValidator validator, ISecretProvider secrets, FleetStatusCache cache, CancellationToken ct) =>
 {
     ContractValidationResult validation = validator.Validate(contract);
     if (!validation.IsValid) return Results.BadRequest(validation);
@@ -63,7 +63,12 @@ app.MapPost("/api/contracts/register", async (ApplicationConfigurationContract c
     string? expectedKey = await secrets.GetAsync(secretName, ct);
     if (string.IsNullOrWhiteSpace(expectedKey) || !FixedTimeEquals(providedKey, expectedKey)) return Results.Unauthorized();
 
-    try { return Results.Ok(await store.RegisterAsync(contract, ct)); }
+    try
+    {
+        ConfigurationContractRegistrationResult result = await store.RegisterAsync(contract, ct);
+        if (result.Changed) cache.Invalidate();
+        return Results.Ok(result);
+    }
     catch (InvalidDataException exception) { return Results.BadRequest(new { error = exception.Message }); }
 });
 app.MapGet("/api/fleet", (FleetStatusCache cache) => cache.Current is null ? Results.NoContent() : Results.Ok(cache.Current));
