@@ -4,18 +4,8 @@ using Aegis.Configuration.Domain;
 
 namespace Aegis.Configuration.Application;
 
-public sealed record SafeRequirementSnapshot(
-    string RequirementId,
-    ConfigurationRequirementKind Kind,
-    ConfigurationState State,
-    bool ValuePresent,
-    string? ValueFingerprint);
-
-public sealed record SafeConfigurationSnapshot(
-    string ApplicationId,
-    string ApplicationVersion,
-    DateTimeOffset CapturedAtUtc,
-    IReadOnlyList<SafeRequirementSnapshot> Requirements);
+public sealed record SafeRequirementSnapshot(string RequirementId, ConfigurationRequirementKind Kind, ConfigurationState State, bool ValuePresent, string? ValueFingerprint);
+public sealed record SafeConfigurationSnapshot(string ApplicationId, string ApplicationVersion, DateTimeOffset CapturedAtUtc, IReadOnlyList<SafeRequirementSnapshot> Requirements);
 
 public sealed class SafeConfigurationSnapshotFactory(IConfigurationValueResolver resolver)
 {
@@ -27,16 +17,13 @@ public sealed class SafeConfigurationSnapshotFactory(IConfigurationValueResolver
         {
             string? value = await resolver.ResolveAsync(requirement, cancellationToken);
             bool present = !string.IsNullOrWhiteSpace(value);
-            string? fingerprint = requirement.Kind == ConfigurationRequirementKind.Secret || !present ? null : Fingerprint(value!);
+            bool mayFingerprint = requirement.Kind != ConfigurationRequirementKind.Secret && requirement.FingerprintSafe;
+            string? fingerprint = mayFingerprint && present ? Fingerprint(value!) : null;
             ConfigurationState state = results.TryGetValue(requirement.Id, out RequirementEvaluation? result) ? result.State : ConfigurationState.Missing;
             snapshots.Add(new(requirement.Id, requirement.Kind, state, present, fingerprint));
         }
         return new(contract.ApplicationId, contract.Version, DateTimeOffset.UtcNow, snapshots);
     }
 
-    private static string Fingerprint(string value)
-    {
-        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(value));
-        return Convert.ToHexString(hash);
-    }
+    private static string Fingerprint(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
 }

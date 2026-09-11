@@ -18,6 +18,7 @@ public sealed class ContractValidator
             else if (!ids.Add(requirement.Id)) errors.Add($"Duplicate requirement Id '{requirement.Id}'.");
             if (requirement.Kind == ConfigurationRequirementKind.Secret && string.IsNullOrWhiteSpace(requirement.SecretName)) errors.Add($"Secret requirement '{requirement.Id}' must declare SecretName.");
             if (requirement.Kind != ConfigurationRequirementKind.Secret && requirement.Required && string.IsNullOrWhiteSpace(requirement.ConfigurationKey)) errors.Add($"Required requirement '{requirement.Id}' must declare ConfigurationKey.");
+            if (requirement.Kind == ConfigurationRequirementKind.Secret && requirement.FingerprintSafe) errors.Add($"Secret requirement '{requirement.Id}' cannot enable FingerprintSafe.");
         }
         return new(errors.Count == 0, errors);
     }
