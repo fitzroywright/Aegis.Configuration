@@ -58,8 +58,8 @@ app.MapPost("/api/contracts/register", async (ApplicationConfigurationContract c
     if (!validation.IsValid) return Results.BadRequest(validation);
     if (!DirectoryContractStore.IsSafeApplicationId(contract.ApplicationId)) return Results.BadRequest(new { error = "ApplicationId may contain only letters, digits, '.', '-' and '_'." });
 
-    string providedKey = context.Request.Headers["X-Aegis-Configuration-Key"].FirstOrDefault() ?? string.Empty;
-    string secretName = $"aegis/configuration/registration/{contract.ApplicationId}";
+    string providedKey = context.Request.Headers["X-Configuration-Registration-Key"].FirstOrDefault() ?? string.Empty;
+    string secretName = $"configuration/registration/{contract.ApplicationId}";
     string? expectedKey = await secrets.GetAsync(secretName, ct);
     if (string.IsNullOrWhiteSpace(expectedKey) || !FixedTimeEquals(providedKey, expectedKey)) return Results.Unauthorized();
 
