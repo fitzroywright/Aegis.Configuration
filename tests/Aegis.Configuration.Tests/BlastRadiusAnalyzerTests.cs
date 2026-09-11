@@ -6,15 +6,20 @@ namespace Aegis.Configuration.Tests;
 public sealed class BlastRadiusAnalyzerTests
 {
     [Fact]
-    public void Analyze_ReturnsEveryAffectedApplication()
+    public void Analyze_FollowsTransitiveDependencyToApplications()
     {
-        ApplicationDependencyMap[] maps = [
-            new("A", [new("OpenBao", "OpenBao", DependencyKind.SecretProvider, true)]),
-            new("B", [new("OpenBao", "OpenBao", DependencyKind.SecretProvider, false)]),
-            new("C", [new("Other", "Other", DependencyKind.ExternalService, true)])
-        ];
-        BlastRadiusReport result = new BlastRadiusAnalyzer().Analyze("OpenBao", maps);
-        Assert.Equal(2, result.Impacts.Count);
-        Assert.Equal("A", result.Impacts[0].ApplicationId);
+        DependencyGraph graph = new([
+            new("vault", "Vault", DependencyKind.SecretProvider),
+            new("secrets", "Secrets", DependencyKind.CommonService),
+            new("app", "App", DependencyKind.Application)
+        ], [
+            new("secrets", "vault", true, "Secret backend"),
+            new("app", "secrets", true, "Credentials")
+        ]);
+        BlastRadiusReport report = new BlastRadiusAnalyzer().Analyze(graph, "vault");
+        DependencyImpact impact = Assert.Single(report.Impacts);
+        Assert.Equal("app", impact.ApplicationId);
+        Assert.True(impact.Critical);
+        Assert.Equal(2, impact.Distance);
     }
 }
