@@ -1,18 +1,52 @@
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using Aegis.Configuration.Application;
 using Aegis.Configuration.Domain;
 using Aegis.Configuration.Infrastructure;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+
+string contractDirectory = builder.Configuration["AegisConfiguration:ContractDirectory"]
+    ?? Path.Combine(builder.Environment.ContentRootPath, "contracts");
+
+builder.Services.AddSingleton<IConfigurationContractStore>(new DirectoryContractStore(contractDirectory));
+builder.Services.AddSingleton<ISecretValueResolver, NullSecretValueResolver>();
+builder.Services.AddSingleton<IConfigurationValueResolver, RuntimeConfigurationValueResolver>();
+builder.Services.AddSingleton<IConfigurationRequirementValidator, UriRequirementValidator>();
+builder.Services.AddHttpClient<HttpEndpointRequirementValidator>();
+builder.Services.AddSingleton<IConfigurationRequirementValidator>(provider => provider.GetRequiredService<HttpEndpointRequirementValidator>());
+builder.Services.AddSingleton<IConfigurationRequirementValidator, TcpEndpointRequirementValidator>();
+builder.Services.AddSingleton<ConfigurationEvaluator>();
+builder.Services.AddSingleton<CommissioningService>();
+
 WebApplication app = builder.Build();
 
-app.MapGet("/", () => Results.Content("""
-<!doctype html>
-<html><head><title>Aegis.Configuration</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>
-body{font-family:system-ui;margin:0;background:#111827;color:#e5e7eb}main{max-width:1000px;margin:auto;padding:32px}h1{margin-bottom:4px}.card{background:#1f2937;border:1px solid #374151;border-radius:10px;padding:20px;margin:16px 0}.muted{color:#9ca3af}.states{display:flex;gap:8px;flex-wrap:wrap}.state{padding:8px 12px;border-radius:6px;background:#374151}code{color:#93c5fd}</style></head>
-<body><main><h1>Aegis.Configuration</h1><div class="muted">Application Commissioning Control Plane</div>
-<div class="card"><h2>Configuration lifecycle</h2><div class="states"><span class="state">Missing</span><span class="state">Invalid</span><span class="state">Configured / Unverified</span><span class="state">Verified</span></div></div>
-<div class="card"><h2>First vertical slice</h2><p>Submit an application configuration contract to <code>POST /api/contracts/evaluate</code>. The service validates the contract and returns its commissioning requirements. Runtime value resolution and Common.Secrets/Common.Diagnostics adapters are the next integration layer.</p></div>
-</main></body></html>
-""", "text/html"));
+app.MapGet("/", async (CommissioningService commissioning, CancellationToken cancellationToken) =>
+{
+    IReadOnlyList<CommissioningSnapshot> snapshots = await commissioning.EvaluateAllAsync(cancellationToken);
+    string cards = string.Join("", snapshots.Select(RenderApplication));
+    if (cards.Length == 0)
+    {
+        cards = "<section class='card'><h2>No application contracts discovered</h2><p>Place *.configuration-contract.json files in the configured contracts directory.</p></section>";
+    }
+
+    return Results.Content($$"""
+<!doctype html><html><head><title>Aegis.Configuration</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+body{font-family:system-ui;margin:0;background:#0b1220;color:#e5e7eb}main{max-width:1180px;margin:auto;padding:32px}.head{display:flex;justify-content:space-between;align-items:end;gap:20px}.muted{color:#94a3b8}.card{background:#111827;border:1px solid #334155;border-radius:12px;padding:20px;margin:16px 0}.req{display:grid;grid-template-columns:1.4fr .7fr 2fr;gap:14px;padding:12px 0;border-top:1px solid #263244}.pill{display:inline-block;padding:4px 9px;border-radius:999px;background:#334155}.Verified{background:#14532d}.Missing{background:#7f1d1d}.Invalid{background:#9a3412}.ConfiguredUnverified{background:#854d0e}.NotRequired{background:#334155}code{color:#93c5fd}@media(max-width:700px){.req{grid-template-columns:1fr}.head{display:block}}
+</style></head><body><main><div class="head"><div><h1>Aegis.Configuration</h1><div class="muted">Commissioning Control Plane</div></div><div><a href="/api/commissioning" style="color:#93c5fd">JSON status</a></div></div>{{cards}}</main></body></html>
+""", "text/html");
+});
+
+app.MapGet("/api/contracts", async (IConfigurationContractStore store, CancellationToken cancellationToken) =>
+    Results.Ok(await store.LoadAllAsync(cancellationToken)));
+
+app.MapGet("/api/commissioning", async (CommissioningService commissioning, CancellationToken cancellationToken) =>
+    Results.Ok(await commissioning.EvaluateAllAsync(cancellationToken)));
+
+app.MapPost("/api/contracts/evaluate", async (
+    ApplicationConfigurationContract contract,
+    ConfigurationEvaluator evaluator,
+    CancellationToken cancellationToken) => Results.Ok(await evaluator.EvaluateAsync(contract, cancellationToken)));
 
 app.MapPost("/api/contracts/inspect", async (HttpRequest request, CancellationToken cancellationToken) =>
 {
@@ -22,5 +56,13 @@ app.MapPost("/api/contracts/inspect", async (HttpRequest request, CancellationTo
 });
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", service = "Aegis.Configuration" }));
-
 app.Run();
+
+static string RenderApplication(CommissioningSnapshot snapshot)
+{
+    HtmlEncoder encoder = HtmlEncoder.Default;
+    string requirements = string.Join("", snapshot.Evaluation.Requirements.Select(requirement =>
+        $"<div class='req'><strong>{encoder.Encode(requirement.DisplayName)}</strong><div><span class='pill {requirement.State}'>{requirement.State}</span></div><div class='muted'>{encoder.Encode(requirement.Message)}</div></div>"));
+    string operational = snapshot.Evaluation.IsOperational ? "Verified / Operational" : "Commissioning required";
+    return $"<section class='card'><h2>{encoder.Encode(snapshot.ApplicationId)} <span class='muted'>v{encoder.Encode(snapshot.ApplicationVersion)}</span></h2><p>{operational}</p>{requirements}</section>";
+}

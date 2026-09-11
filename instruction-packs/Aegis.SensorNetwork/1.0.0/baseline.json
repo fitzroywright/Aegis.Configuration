@@ -1,0 +1,11 @@
+{
+  "applicationId": "Aegis.SensorNetwork",
+  "applicationVersion": "1.0.0",
+  "packVersion": "1.0.0",
+  "publishedAtUtc": "2026-09-10T00:00:00Z",
+  "instructions": [
+    { "id": "postgresql", "title": "Configure PostgreSQL", "summary": "Provide the SensorNetwork PostgreSQL connection string and apply the application migrations.", "steps": ["Create a dedicated database and least-privilege application account.", "Set ConnectionStrings:SensorNetwork using the deployment configuration mechanism.", "Apply the Aegis.SensorNetwork EF Core migrations.", "Return here and run verification."] },
+    { "id": "api-admin", "title": "Provision API administration credential", "summary": "Create the administration credential in the configured Common.Secrets provider.", "steps": ["Generate a high-entropy credential.", "Store it as SensorNetwork:Api:AdminKey through Common.Secrets.", "Do not place the secret value in commissioning notes or reports.", "Verify that the workload identity can resolve the secret."] },
+    { "id": "diagnostics", "title": "Verify diagnostics", "summary": "Expose and configure the SensorNetwork diagnostics endpoint.", "steps": ["Start the SensorNetwork API.", "Configure Applications:SensorNetwork:DiagnosticsUrl with its health/diagnostic endpoint.", "Run verification and confirm the endpoint responds successfully."] }
+  ]
+}
