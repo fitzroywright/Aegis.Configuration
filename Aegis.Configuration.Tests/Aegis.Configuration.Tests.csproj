@@ -8,8 +8,8 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.Memory" Version="10.0.0" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/Aegis.Configuration.Domain/Aegis.Configuration.Domain.csproj" />
-    <ProjectReference Include="../../src/Aegis.Configuration.Application/Aegis.Configuration.Application.csproj" />
-    <ProjectReference Include="../../src/Aegis.Configuration.Infrastructure/Aegis.Configuration.Infrastructure.csproj" />
+    <ProjectReference Include="../Aegis.Configuration.Domain/Aegis.Configuration.Domain.csproj" />
+    <ProjectReference Include="../Aegis.Configuration.Application/Aegis.Configuration.Application.csproj" />
+    <ProjectReference Include="../Aegis.Configuration.Infrastructure/Aegis.Configuration.Infrastructure.csproj" />
   </ItemGroup>
 </Project>
