@@ -20,6 +20,34 @@ public sealed class ConfigurationEvaluatorTests
     }
 
     [Fact]
+    public async Task MissingOptionalValueIsNotRequired()
+    {
+        ApplicationConfigurationContract contract = new("app", "App", "1.0", [
+            new("url", "Optional URL", ConfigurationRequirementKind.Configuration, false, "Optional integration", "Service:Url", Validator: "uri")
+        ]);
+        ConfigurationEvaluator evaluator = new(new EmptyResolver(), []);
+
+        ConfigurationEvaluation result = await evaluator.EvaluateAsync(contract);
+
+        Assert.True(result.IsOperational);
+        Assert.Equal(ConfigurationState.NotRequired, result.Requirements.Single().State);
+    }
+
+    [Fact]
+    public async Task ConfiguredOptionalValueIsValidated()
+    {
+        ApplicationConfigurationContract contract = new("app", "App", "1.0", [
+            new("url", "Optional URL", ConfigurationRequirementKind.Configuration, false, "Optional integration", "Service:Url", Validator: "uri")
+        ]);
+        ConfigurationEvaluator evaluator = new(new FixedResolver("not-a-uri"), [new RejectingValidator("uri")]);
+
+        ConfigurationEvaluation result = await evaluator.EvaluateAsync(contract);
+
+        Assert.False(result.IsOperational);
+        Assert.Equal(ConfigurationState.Invalid, result.Requirements.Single().State);
+    }
+
+    [Fact]
     public async Task PresentValueWithoutValidatorIsUnverified()
     {
         ApplicationConfigurationContract contract = new("app", "App", "1.0", [
@@ -33,6 +61,20 @@ public sealed class ConfigurationEvaluatorTests
         Assert.Equal(ConfigurationState.ConfiguredUnverified, result.Requirements.Single().State);
     }
 
+    [Fact]
+    public async Task DeclaredButUnavailableValidatorFailsClosed()
+    {
+        ApplicationConfigurationContract contract = new("app", "App", "1.0", [
+            new("url", "Service URL", ConfigurationRequirementKind.Configuration, true, "Required service", "Service:Url", Validator: "missing-validator")
+        ]);
+        ConfigurationEvaluator evaluator = new(new FixedResolver("https://example.invalid"), []);
+
+        ConfigurationEvaluation result = await evaluator.EvaluateAsync(contract);
+
+        Assert.False(result.IsOperational);
+        Assert.Equal(ConfigurationState.Invalid, result.Requirements.Single().State);
+    }
+
     private sealed class EmptyResolver : IConfigurationValueResolver
     {
         public ValueTask<string?> ResolveAsync(ConfigurationRequirement requirement, CancellationToken cancellationToken = default) => ValueTask.FromResult<string?>(null);
@@ -41,5 +83,13 @@ public sealed class ConfigurationEvaluatorTests
     private sealed class FixedResolver(string value) : IConfigurationValueResolver
     {
         public ValueTask<string?> ResolveAsync(ConfigurationRequirement requirement, CancellationToken cancellationToken = default) => ValueTask.FromResult<string?>(value);
+    }
+
+    private sealed class RejectingValidator(string validatorName) : IConfigurationRequirementValidator
+    {
+        public bool CanValidate(ConfigurationRequirement requirement) => string.Equals(requirement.Validator, validatorName, StringComparison.OrdinalIgnoreCase);
+
+        public ValueTask<(bool Success, string Message)> ValidateAsync(ConfigurationRequirement requirement, string value, CancellationToken cancellationToken = default)
+            => ValueTask.FromResult((false, "Rejected for test."));
     }
 }
