@@ -7,6 +7,19 @@ public interface IConfigurationContractStore
     ValueTask<IReadOnlyList<ApplicationConfigurationContract>> LoadAllAsync(CancellationToken cancellationToken = default);
 }
 
+public interface IConfigurationContractRegistrationStore
+{
+    ValueTask<ConfigurationContractRegistrationResult> RegisterAsync(
+        ApplicationConfigurationContract contract,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed record ConfigurationContractRegistrationResult(
+    string ApplicationId,
+    string Version,
+    bool Changed,
+    string ContractHash);
+
 public sealed class CommissioningService(
     IConfigurationContractStore contractStore,
     ConfigurationEvaluator evaluator)
