@@ -8,7 +8,7 @@ public sealed record CommissioningHistoryEntry(
     string ApplicationId,
     string ApplicationVersion,
     bool IsOperational,
-    IReadOnlyList<ConfigurationRequirementResult> Requirements);
+    IReadOnlyList<RequirementEvaluation> Requirements);
 
 public interface ICommissioningHistoryStore
 {

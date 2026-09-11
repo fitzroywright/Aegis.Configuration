@@ -8,7 +8,7 @@ public sealed class ConfigurationReadinessScorer
 {
     public ConfigurationReadinessScore Calculate(ConfigurationEvaluation evaluation)
     {
-        ConfigurationRequirementResult[] required = evaluation.Requirements.Where(x => x.State != ConfigurationState.NotRequired).ToArray();
+        RequirementEvaluation[] required = evaluation.Requirements.Where(x => x.Required).ToArray();
         if (required.Length == 0) return new(100, 0, 0, "Green");
         double points = required.Sum(x => x.State switch
         {

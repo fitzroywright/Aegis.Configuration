@@ -3,7 +3,6 @@ using Aegis.Configuration.Domain;
 namespace Aegis.Configuration.Application;
 
 public enum DriftSeverity { None, Improved, Warning, Critical }
-
 public sealed record RequirementDrift(string RequirementId, ConfigurationState? Previous, ConfigurationState Current, DriftSeverity Severity, string Message);
 public sealed record ConfigurationDriftReport(string ApplicationId, DateTimeOffset ComparedAtUtc, IReadOnlyList<RequirementDrift> Changes)
 {
@@ -14,11 +13,11 @@ public sealed class DriftDetector
 {
     public ConfigurationDriftReport Compare(CommissioningHistoryEntry previous, CommissioningSnapshot current)
     {
-        Dictionary<string, ConfigurationRequirementResult> old = previous.Requirements.ToDictionary(x => x.RequirementId, StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, RequirementEvaluation> old = previous.Requirements.ToDictionary(x => x.RequirementId, StringComparer.OrdinalIgnoreCase);
         List<RequirementDrift> changes = [];
-        foreach (ConfigurationRequirementResult now in current.Evaluation.Requirements)
+        foreach (RequirementEvaluation now in current.Evaluation.Requirements)
         {
-            old.TryGetValue(now.RequirementId, out ConfigurationRequirementResult? before);
+            old.TryGetValue(now.RequirementId, out RequirementEvaluation? before);
             if (before?.State == now.State) continue;
             DriftSeverity severity = Classify(before?.State, now.State);
             changes.Add(new(now.RequirementId, before?.State, now.State, severity, $"{before?.State.ToString() ?? "New"} -> {now.State}"));

@@ -17,7 +17,7 @@ public sealed class CommissioningReportRenderer
         report.AppendLine();
         report.AppendLine("| Requirement | State | Result |");
         report.AppendLine("| --- | --- | --- |");
-        foreach (ConfigurationRequirementResult requirement in snapshot.Evaluation.Requirements)
+        foreach (RequirementEvaluation requirement in snapshot.Evaluation.Requirements)
         {
             report.AppendLine($"| {Escape(requirement.DisplayName)} | {requirement.State} | {Escape(requirement.Message)} |");
         }
