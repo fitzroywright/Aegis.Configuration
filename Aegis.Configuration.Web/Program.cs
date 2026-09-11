@@ -1,12 +1,14 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
+using System.Text.Json.Serialization;
 using Aegis.Configuration.Application;
 using Aegis.Configuration.Domain;
 using Aegis.Configuration.Infrastructure;
 using Common.Secrets;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 string contractDirectory = builder.Configuration["AegisConfiguration:ContractDirectory"] ?? Path.Combine(builder.Environment.ContentRootPath, "contracts");
 string dataDirectory = builder.Configuration["AegisConfiguration:DataDirectory"] ?? Path.Combine(builder.Environment.ContentRootPath, "data");
 string instructionDirectory = builder.Configuration["AegisConfiguration:InstructionDirectory"] ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "instruction-packs"));
@@ -54,6 +56,7 @@ app.MapPost("/api/contracts/register", async (ApplicationConfigurationContract c
 {
     ContractValidationResult validation = validator.Validate(contract);
     if (!validation.IsValid) return Results.BadRequest(validation);
+    if (!DirectoryContractStore.IsSafeApplicationId(contract.ApplicationId)) return Results.BadRequest(new { error = "ApplicationId may contain only letters, digits, '.', '-' and '_'." });
 
     string providedKey = context.Request.Headers["X-Aegis-Configuration-Key"].FirstOrDefault() ?? string.Empty;
     string secretName = $"aegis/configuration/registration/{contract.ApplicationId}";
