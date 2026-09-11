@@ -43,21 +43,21 @@ public sealed class ConfigurationEvaluator(
                 ConfigurationState state = string.IsNullOrWhiteSpace(requirement.Validator)
                     ? ConfigurationState.ConfiguredUnverified
                     : ConfigurationState.Invalid;
-                string message = string.IsNullOrWhiteSpace(requirement.Validator)
+                string validationMessage = string.IsNullOrWhiteSpace(requirement.Validator)
                     ? "Value is present but no validator is declared."
                     : $"Declared validator '{requirement.Validator}' is unavailable.";
 
-                results.Add(new(requirement.Id, requirement.DisplayName, requirement.Required, state, message));
+                results.Add(new(requirement.Id, requirement.DisplayName, requirement.Required, state, validationMessage));
                 continue;
             }
 
-            (bool success, string message) = await validator.ValidateAsync(requirement, value, cancellationToken);
+            (bool success, string validationMessage) = await validator.ValidateAsync(requirement, value, cancellationToken);
             results.Add(new(
                 requirement.Id,
                 requirement.DisplayName,
                 requirement.Required,
                 success ? ConfigurationState.Verified : ConfigurationState.Invalid,
-                message));
+                validationMessage));
         }
 
         return new(contract.ApplicationId, contract.Version, results);
