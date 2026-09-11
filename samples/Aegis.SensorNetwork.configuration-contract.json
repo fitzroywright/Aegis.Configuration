@@ -1,0 +1,36 @@
+{
+  "applicationId": "Aegis.SensorNetwork",
+  "displayName": "Aegis Sensor Network",
+  "version": "1.0",
+  "requirements": [
+    {
+      "id": "database",
+      "displayName": "Sensor Network PostgreSQL Database",
+      "kind": "ExternalService",
+      "required": true,
+      "purpose": "Stores remote control-plane and telemetry state.",
+      "configurationKey": "ConnectionStrings:SensorNetwork",
+      "validator": "postgresql",
+      "instructionId": "postgresql.sensor-network"
+    },
+    {
+      "id": "api-admin-key",
+      "displayName": "API Administrator Credential",
+      "kind": "Secret",
+      "required": true,
+      "purpose": "Protects administrative API operations.",
+      "secretName": "SensorNetwork:Api:AdminKey",
+      "validator": "secret-resolvable",
+      "instructionId": "secrets.api-admin-key"
+    },
+    {
+      "id": "diagnostics",
+      "displayName": "Common.Diagnostics",
+      "kind": "Diagnostic",
+      "required": true,
+      "purpose": "Provides operational proof after configuration is present.",
+      "validator": "diagnostics",
+      "instructionId": "common.diagnostics"
+    }
+  ]
+}
