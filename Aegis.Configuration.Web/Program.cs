@@ -44,8 +44,8 @@ app.MapGet("/", (FleetStatusCache cache, ConfigurationReadinessScorer scorer) =>
 """, "text/html");
 });
 
-app.MapPost("/verify", async (CommissioningService service, FleetStatusCache cache, CancellationToken ct) => { IReadOnlyList<CommissioningSnapshot> snapshots = await service.EvaluateAllAsync(ct); cache.Replace(snapshots); return Results.Redirect("/"); });
-app.MapPost("/api/verify", async (CommissioningService service, FleetStatusCache cache, CancellationToken ct) => Results.Ok(cache.Replace(await service.EvaluateAllAsync(ct))));
+app.MapPost("/verify", async (CommissioningService service, CommissioningRecorder recorder, FleetStatusCache cache, CancellationToken ct) => { IReadOnlyList<CommissioningSnapshot> snapshots = await service.EvaluateAllAsync(ct); foreach (CommissioningSnapshot snapshot in snapshots) await recorder.RecordAsync(snapshot, ct); cache.Replace(snapshots); return Results.Redirect("/"); });
+app.MapPost("/api/verify", async (CommissioningService service, CommissioningRecorder recorder, FleetStatusCache cache, CancellationToken ct) => { IReadOnlyList<CommissioningSnapshot> snapshots = await service.EvaluateAllAsync(ct); foreach (CommissioningSnapshot snapshot in snapshots) await recorder.RecordAsync(snapshot, ct); return Results.Ok(cache.Replace(snapshots)); });
 app.MapGet("/api/fleet", (FleetStatusCache cache) => cache.Current is null ? Results.NoContent() : Results.Ok(cache.Current));
 app.MapGet("/api/contracts", async (IConfigurationContractStore store, CancellationToken ct) => Results.Ok(await store.LoadAllAsync(ct)));
 app.MapGet("/api/history", async (ICommissioningHistoryStore history, CancellationToken ct) => Results.Ok(await history.ReadAsync(null, ct)));

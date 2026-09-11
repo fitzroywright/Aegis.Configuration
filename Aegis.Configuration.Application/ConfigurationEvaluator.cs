@@ -25,23 +25,29 @@ public sealed class ConfigurationEvaluator(
 
         foreach (ConfigurationRequirement requirement in contract.Requirements)
         {
-            if (!requirement.Required)
-            {
-                results.Add(new(requirement.Id, requirement.DisplayName, false, ConfigurationState.NotRequired, "Optional requirement."));
-                continue;
-            }
-
             string? value = await valueResolver.ResolveAsync(requirement, cancellationToken);
             if (string.IsNullOrWhiteSpace(value))
             {
-                results.Add(new(requirement.Id, requirement.DisplayName, true, ConfigurationState.Missing, "Required value is missing."));
+                results.Add(new(
+                    requirement.Id,
+                    requirement.DisplayName,
+                    requirement.Required,
+                    requirement.Required ? ConfigurationState.Missing : ConfigurationState.NotRequired,
+                    requirement.Required ? "Required value is missing." : "Optional value is not configured."));
                 continue;
             }
 
             IConfigurationRequirementValidator? validator = validators.FirstOrDefault(x => x.CanValidate(requirement));
             if (validator is null)
             {
-                results.Add(new(requirement.Id, requirement.DisplayName, true, ConfigurationState.ConfiguredUnverified, "Value is present but has not been operationally verified."));
+                ConfigurationState state = string.IsNullOrWhiteSpace(requirement.Validator)
+                    ? ConfigurationState.ConfiguredUnverified
+                    : ConfigurationState.Invalid;
+                string message = string.IsNullOrWhiteSpace(requirement.Validator)
+                    ? "Value is present but no validator is declared."
+                    : $"Declared validator '{requirement.Validator}' is unavailable.";
+
+                results.Add(new(requirement.Id, requirement.DisplayName, requirement.Required, state, message));
                 continue;
             }
 
@@ -49,7 +55,7 @@ public sealed class ConfigurationEvaluator(
             results.Add(new(
                 requirement.Id,
                 requirement.DisplayName,
-                true,
+                requirement.Required,
                 success ? ConfigurationState.Verified : ConfigurationState.Invalid,
                 message));
         }

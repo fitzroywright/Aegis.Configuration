@@ -19,7 +19,7 @@ public sealed record ConfigurationRequirement(
 
 public sealed record ConfigurationEvaluation(string ApplicationId, string Version, IReadOnlyList<RequirementEvaluation> Requirements)
 {
-    public bool IsOperational => Requirements.All(x => !x.Required || x.State is ConfigurationState.Verified or ConfigurationState.NotRequired);
+    public bool IsOperational => Requirements.All(x => x.State is ConfigurationState.Verified or ConfigurationState.NotRequired);
 }
 
 public sealed record RequirementEvaluation(string RequirementId, string DisplayName, bool Required, ConfigurationState State, string Message);
