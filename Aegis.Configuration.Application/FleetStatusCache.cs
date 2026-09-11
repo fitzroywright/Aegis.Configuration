@@ -20,4 +20,9 @@ public sealed class FleetStatusCache
         lock (gate) current = next;
         return next;
     }
+
+    public void Invalidate()
+    {
+        lock (gate) current = null;
+    }
 }
