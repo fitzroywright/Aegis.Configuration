@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Aegis.Configuration.Domain/Aegis.Configuration.Domain.csproj" />
+    <ProjectReference Include="../Aegis.Configuration.Application/Aegis.Configuration.Application.csproj" />
+    <ProjectReference Include="../Aegis.Configuration.Infrastructure/Aegis.Configuration.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>
