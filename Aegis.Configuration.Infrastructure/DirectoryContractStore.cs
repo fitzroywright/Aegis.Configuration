@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Aegis.Configuration.Application;
@@ -21,7 +20,7 @@ public sealed class DirectoryContractStore(string directoryPath) : IConfiguratio
     {
         if (!Directory.Exists(directoryPath)) return [];
         List<ApplicationConfigurationContract> contracts = [];
-        foreach (string path in Directory.EnumerateFiles(directoryPath, "*.configuration-contract.json", SearchOption.TopDirectoryOnly))
+        foreach (string path in Directory.EnumerateFiles(directoryPath, "*.json", SearchOption.TopDirectoryOnly))
         {
             await using FileStream stream = File.OpenRead(path);
             ApplicationConfigurationContract? contract;
@@ -70,9 +69,12 @@ public sealed class DirectoryContractStore(string directoryPath) : IConfiguratio
         return new(contract.ApplicationId, contract.Version, true, hash);
     }
 
+    public static bool IsSafeApplicationId(string applicationId)
+        => !string.IsNullOrWhiteSpace(applicationId) && applicationId.All(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_');
+
     private static string EnsureSafeApplicationId(string applicationId)
     {
-        if (string.IsNullOrWhiteSpace(applicationId) || applicationId.Any(character => !(char.IsLetterOrDigit(character) || character is '.' or '-' or '_')))
+        if (!IsSafeApplicationId(applicationId))
             throw new InvalidDataException("ApplicationId may contain only letters, digits, '.', '-' and '_'.");
         return applicationId;
     }
