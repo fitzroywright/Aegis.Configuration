@@ -43,11 +43,11 @@ public sealed class ConfigurationEvaluator(
                 ConfigurationState state = string.IsNullOrWhiteSpace(requirement.Validator)
                     ? ConfigurationState.ConfiguredUnverified
                     : ConfigurationState.Invalid;
-                string validationMessage = string.IsNullOrWhiteSpace(requirement.Validator)
+                string unavailableValidatorMessage = string.IsNullOrWhiteSpace(requirement.Validator)
                     ? "Value is present but no validator is declared."
                     : $"Declared validator '{requirement.Validator}' is unavailable.";
 
-                results.Add(new(requirement.Id, requirement.DisplayName, requirement.Required, state, validationMessage));
+                results.Add(new(requirement.Id, requirement.DisplayName, requirement.Required, state, unavailableValidatorMessage));
                 continue;
             }
 
