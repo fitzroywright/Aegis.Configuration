@@ -7,7 +7,7 @@
     <CommonDiagnosticsProject Condition="Exists('../../Common/Common.Diagnostics/Common.Diagnostics.csproj')">../../Common/Common.Diagnostics/Common.Diagnostics.csproj</CommonDiagnosticsProject>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.11" />
     <PackageReference Include="Npgsql" Version="10.0.0" />
     <ProjectReference Include="../Aegis.Configuration.Domain/Aegis.Configuration.Domain.csproj" />
     <ProjectReference Include="../Aegis.Configuration.Application/Aegis.Configuration.Application.csproj" />
