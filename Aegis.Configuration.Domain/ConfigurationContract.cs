@@ -10,7 +10,8 @@ public sealed record ApplicationConfigurationContract(
     IReadOnlyList<ConfigurationRequirement> Requirements,
     string? SiteId = null,
     string? InstanceId = null,
-    string? Description = null);
+    string? Description = null,
+    DateTimeOffset? LastRegisteredAtUtc = null);
 
 public sealed record ConfigurationRequirement(
     string Id,
@@ -28,9 +29,7 @@ public sealed record ConfigurationRequirement(
 
 public sealed record ConfigurationEvaluation(string ApplicationId, string Version, IReadOnlyList<RequirementEvaluation> Requirements)
 {
-    public bool IsComplete => Requirements
-        .Where(x => x.Required)
-        .All(x => x.State == ConfigurationState.Configured);
+    public bool IsComplete => Requirements.Where(x => x.Required).All(x => x.State == ConfigurationState.Configured);
 }
 
 public sealed record RequirementEvaluation(
