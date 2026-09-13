@@ -6,12 +6,12 @@ namespace Aegis.Configuration.Tests;
 public sealed class CommissioningServiceTests
 {
     [Fact]
-    public async Task EvaluateAllAsync_ReturnsSnapshotForEachContract()
+    public async Task EvaluateAllAsync_ReturnsApplicationReportedState()
     {
         ApplicationConfigurationContract contract = new("app", "App", "1.0", [
-            new("setting", "Setting", ConfigurationRequirementKind.Configuration, true, "Purpose", "Setting")
+            new("setting", "Setting", ConfigurationRequirementKind.Configuration, true, "Purpose", ConfigurationKey: "Setting", IsConfigured: true)
         ]);
-        CommissioningService service = new(new FakeStore(contract), new ConfigurationEvaluator(new FakeResolver("present")));
+        CommissioningService service = new(new FakeStore(contract), new ConfigurationEvaluator());
 
         IReadOnlyList<CommissioningSnapshot> result = await service.EvaluateAllAsync();
 
@@ -23,16 +23,6 @@ public sealed class CommissioningServiceTests
     private sealed class FakeStore(ApplicationConfigurationContract contract) : IConfigurationContractStore
     {
         public ValueTask<IReadOnlyList<ApplicationConfigurationContract>> LoadAllAsync(CancellationToken cancellationToken = default)
-        {
-            return ValueTask.FromResult<IReadOnlyList<ApplicationConfigurationContract>>([contract]);
-        }
-    }
-
-    private sealed class FakeResolver(string value) : IConfigurationValueResolver
-    {
-        public ValueTask<string?> ResolveAsync(ConfigurationRequirement requirement, CancellationToken cancellationToken = default)
-        {
-            return ValueTask.FromResult<string?>(value);
-        }
+            => ValueTask.FromResult<IReadOnlyList<ApplicationConfigurationContract>>([contract]);
     }
 }
