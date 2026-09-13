@@ -11,12 +11,13 @@ public sealed class CommissioningServiceTests
         ApplicationConfigurationContract contract = new("app", "App", "1.0", [
             new("setting", "Setting", ConfigurationRequirementKind.Configuration, true, "Purpose", "Setting")
         ]);
-        CommissioningService service = new(new FakeStore(contract), new ConfigurationEvaluator(new FakeResolver("present"), []));
+        CommissioningService service = new(new FakeStore(contract), new ConfigurationEvaluator(new FakeResolver("present")));
 
         IReadOnlyList<CommissioningSnapshot> result = await service.EvaluateAllAsync();
 
         Assert.Single(result);
-        Assert.Equal(ConfigurationState.ConfiguredUnverified, result[0].Evaluation.Requirements[0].State);
+        Assert.True(result[0].Evaluation.IsComplete);
+        Assert.Equal(ConfigurationState.Configured, result[0].Evaluation.Requirements[0].State);
     }
 
     private sealed class FakeStore(ApplicationConfigurationContract contract) : IConfigurationContractStore
