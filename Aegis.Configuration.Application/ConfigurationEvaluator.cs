@@ -2,39 +2,22 @@ using Aegis.Configuration.Domain;
 
 namespace Aegis.Configuration.Application;
 
-public interface IConfigurationValueResolver
+public sealed class ConfigurationEvaluator
 {
-    ValueTask<string?> ResolveAsync(ConfigurationRequirement requirement, CancellationToken cancellationToken = default);
-}
-
-public sealed class ConfigurationEvaluator(IConfigurationValueResolver valueResolver)
-{
-    public async ValueTask<ConfigurationEvaluation> EvaluateAsync(
+    public ValueTask<ConfigurationEvaluation> EvaluateAsync(
         ApplicationConfigurationContract contract,
         CancellationToken cancellationToken = default)
     {
-        List<RequirementEvaluation> results = [];
+        cancellationToken.ThrowIfCancellationRequested();
 
-        foreach (ConfigurationRequirement requirement in contract.Requirements)
+        RequirementEvaluation[] results = contract.Requirements.Select(requirement =>
         {
-            bool configured;
-            string? safeDisplayValue = null;
-
-            if (requirement.IsConfigured.HasValue)
-            {
-                configured = requirement.IsConfigured.Value;
-                safeDisplayValue = requirement.Sensitive ? null : requirement.SafeDisplayValue;
-            }
-            else
-            {
-                string? value = await valueResolver.ResolveAsync(requirement, cancellationToken);
-                configured = !string.IsNullOrWhiteSpace(value);
-                safeDisplayValue = requirement.Sensitive ? null : requirement.SafeDisplayValue;
-            }
-
+            bool configured = requirement.IsConfigured == true;
             ConfigurationState state = configured
                 ? ConfigurationState.Configured
-                : requirement.Required ? ConfigurationState.Missing : ConfigurationState.OptionalNotConfigured;
+                : requirement.Required
+                    ? ConfigurationState.Missing
+                    : ConfigurationState.OptionalNotConfigured;
 
             string message = state switch
             {
@@ -43,18 +26,18 @@ public sealed class ConfigurationEvaluator(IConfigurationValueResolver valueReso
                 _ => "Optional value is not configured."
             };
 
-            results.Add(new(
+            return new RequirementEvaluation(
                 requirement.Id,
                 requirement.DisplayName,
                 requirement.Required,
                 state,
                 message,
                 requirement.Purpose,
-                safeDisplayValue,
+                requirement.Sensitive ? null : requirement.SafeDisplayValue,
                 requirement.Example,
-                requirement.Sensitive));
-        }
+                requirement.Sensitive);
+        }).ToArray();
 
-        return new(contract.ApplicationId, contract.Version, results);
+        return ValueTask.FromResult(new ConfigurationEvaluation(contract.ApplicationId, contract.Version, results));
     }
 }
