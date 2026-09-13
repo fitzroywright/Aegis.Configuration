@@ -11,11 +11,11 @@ public sealed class ConfigurationEvaluatorTests
         ApplicationConfigurationContract contract = new("app", "App", "1.0", [
             new("db", "Database", ConfigurationRequirementKind.Configuration, true, "Required database", "ConnectionStrings:App")
         ]);
-        ConfigurationEvaluator evaluator = new(new EmptyResolver(), []);
+        ConfigurationEvaluator evaluator = new(new EmptyResolver());
 
         ConfigurationEvaluation result = await evaluator.EvaluateAsync(contract);
 
-        Assert.False(result.IsOperational);
+        Assert.False(result.IsComplete);
         Assert.Equal(ConfigurationState.Missing, result.Requirements.Single().State);
     }
 
@@ -25,12 +25,12 @@ public sealed class ConfigurationEvaluatorTests
         ApplicationConfigurationContract contract = new("app", "App", "1.0", [
             new("url", "Optional URL", ConfigurationRequirementKind.Configuration, false, "Optional integration", "Service:Url")
         ]);
-        ConfigurationEvaluator evaluator = new(new EmptyResolver(), []);
+        ConfigurationEvaluator evaluator = new(new EmptyResolver());
 
         ConfigurationEvaluation result = await evaluator.EvaluateAsync(contract);
 
-        Assert.True(result.IsOperational);
-        Assert.Equal(ConfigurationState.NotRequired, result.Requirements.Single().State);
+        Assert.True(result.IsComplete);
+        Assert.Equal(ConfigurationState.OptionalNotConfigured, result.Requirements.Single().State);
     }
 
     [Fact]
@@ -39,27 +39,27 @@ public sealed class ConfigurationEvaluatorTests
         ApplicationConfigurationContract contract = new("app", "App", "1.0", [
             new("url", "Service URL", ConfigurationRequirementKind.Configuration, true, "Required service", "Service:Url")
         ]);
-        ConfigurationEvaluator evaluator = new(new FixedResolver("https://example.invalid"), []);
+        ConfigurationEvaluator evaluator = new(new FixedResolver("https://example.invalid"));
 
         ConfigurationEvaluation result = await evaluator.EvaluateAsync(contract);
 
-        Assert.True(result.IsOperational);
-        Assert.Equal(ConfigurationState.ConfiguredUnverified, result.Requirements.Single().State);
+        Assert.True(result.IsComplete);
+        Assert.Equal(ConfigurationState.Configured, result.Requirements.Single().State);
     }
 
     [Fact]
     public async Task ApplicationMaySelfReportConfiguredWithoutPublishingValue()
     {
         ApplicationConfigurationContract contract = new("app", "App", "1.0", [
-            new("secret", "OpenBao Credentials", ConfigurationRequirementKind.Secret, true, "Authenticate to OpenBao", SecretName: "openbao/bootstrap", IsConfigured: true, Sensitive: true)
+            new("secret", "OpenBao Credentials", ConfigurationRequirementKind.Secret, true, "OpenBao credentials are supplied.", SecretName: "openbao/bootstrap", IsConfigured: true, Sensitive: true)
         ]);
-        ConfigurationEvaluator evaluator = new(new EmptyResolver(), []);
+        ConfigurationEvaluator evaluator = new(new EmptyResolver());
 
         ConfigurationEvaluation result = await evaluator.EvaluateAsync(contract);
 
-        Assert.True(result.IsOperational);
+        Assert.True(result.IsComplete);
         RequirementEvaluation requirement = result.Requirements.Single();
-        Assert.Equal(ConfigurationState.ConfiguredUnverified, requirement.State);
+        Assert.Equal(ConfigurationState.Configured, requirement.State);
         Assert.Null(requirement.SafeDisplayValue);
         Assert.True(requirement.Sensitive);
     }
