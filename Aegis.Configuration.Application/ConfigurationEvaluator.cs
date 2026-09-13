@@ -25,39 +25,43 @@ public sealed class ConfigurationEvaluator(
 
         foreach (ConfigurationRequirement requirement in contract.Requirements)
         {
-            string? value = await valueResolver.ResolveAsync(requirement, cancellationToken);
-            if (string.IsNullOrWhiteSpace(value))
+            // Preferred V1 path: the application publishes whether the value is configured
+            // and, when safe, a display value. Configuration does not probe dependencies.
+            if (requirement.IsConfigured.HasValue)
             {
-                results.Add(new(
-                    requirement.Id,
-                    requirement.DisplayName,
-                    requirement.Required,
-                    requirement.Required ? ConfigurationState.Missing : ConfigurationState.NotRequired,
-                    requirement.Required ? "Required value is missing." : "Optional value is not configured."));
-                continue;
-            }
-
-            IConfigurationRequirementValidator? validator = validators.FirstOrDefault(x => x.CanValidate(requirement));
-            if (validator is null)
-            {
-                ConfigurationState state = string.IsNullOrWhiteSpace(requirement.Validator)
+                bool configured = requirement.IsConfigured.Value;
+                ConfigurationState state = configured
                     ? ConfigurationState.ConfiguredUnverified
-                    : ConfigurationState.Invalid;
-                string unavailableValidatorMessage = string.IsNullOrWhiteSpace(requirement.Validator)
-                    ? "Value is present but no validator is declared."
-                    : $"Declared validator '{requirement.Validator}' is unavailable.";
+                    : requirement.Required ? ConfigurationState.Missing : ConfigurationState.NotRequired;
+                string message = configured
+                    ? "Configured. Operational validation belongs to Aegis.Diagnostics."
+                    : requirement.Required ? "Required value is missing." : "Optional value is not configured.";
 
-                results.Add(new(requirement.Id, requirement.DisplayName, requirement.Required, state, unavailableValidatorMessage));
+                results.Add(new(
+                    requirement.Id, requirement.DisplayName, requirement.Required, state, message,
+                    requirement.Purpose,
+                    requirement.Sensitive ? null : requirement.SafeDisplayValue,
+                    requirement.Example,
+                    requirement.Sensitive));
                 continue;
             }
 
-            (bool success, string validationMessage) = await validator.ValidateAsync(requirement, value, cancellationToken);
+            // Backward compatibility for existing contracts that publish a configuration key.
+            string? value = await valueResolver.ResolveAsync(requirement, cancellationToken);
+            bool present = !string.IsNullOrWhiteSpace(value);
+            ConfigurationState fallbackState = present
+                ? ConfigurationState.ConfiguredUnverified
+                : requirement.Required ? ConfigurationState.Missing : ConfigurationState.NotRequired;
+            string fallbackMessage = present
+                ? "Configured. Operational validation belongs to Aegis.Diagnostics."
+                : requirement.Required ? "Required value is missing." : "Optional value is not configured.";
+
             results.Add(new(
-                requirement.Id,
-                requirement.DisplayName,
-                requirement.Required,
-                success ? ConfigurationState.Verified : ConfigurationState.Invalid,
-                validationMessage));
+                requirement.Id, requirement.DisplayName, requirement.Required, fallbackState, fallbackMessage,
+                requirement.Purpose,
+                requirement.Sensitive ? null : requirement.SafeDisplayValue,
+                requirement.Example,
+                requirement.Sensitive));
         }
 
         return new(contract.ApplicationId, contract.Version, results);
