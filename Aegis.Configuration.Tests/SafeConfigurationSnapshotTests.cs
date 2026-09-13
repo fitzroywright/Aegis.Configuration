@@ -8,8 +8,8 @@ public sealed class SafeConfigurationSnapshotTests
     [Fact]
     public async Task CaptureAsync_NeverFingerprintsSecretValues()
     {
-        ApplicationConfigurationContract contract = new("app", "App", "1", [new("secret", "Secret", ConfigurationRequirementKind.Secret, true, "Purpose", SecretName: "secret")]);
-        ConfigurationEvaluation evaluation = new("app", "1", [new("secret", "Secret", true, ConfigurationState.Verified, "OK")]);
+        ApplicationConfigurationContract contract = new("app", "App", "1", [new("secret", "Secret", ConfigurationRequirementKind.Secret, true, "Purpose", SecretName: "secret", Sensitive: true)]);
+        ConfigurationEvaluation evaluation = new("app", "1", [new("secret", "Secret", true, ConfigurationState.Configured, "Configured", Sensitive: true)]);
         SafeConfigurationSnapshotFactory factory = new(new Resolver("do-not-store-me"));
         SafeConfigurationSnapshot snapshot = await factory.CaptureAsync(contract, evaluation);
         SafeRequirementSnapshot result = Assert.Single(snapshot.Requirements);
