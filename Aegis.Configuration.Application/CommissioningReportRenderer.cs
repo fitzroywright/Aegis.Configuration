@@ -12,7 +12,7 @@ public sealed class CommissioningReportRenderer
         report.AppendLine();
         report.AppendLine($"- Application version: {snapshot.ApplicationVersion}");
         report.AppendLine($"- Generated UTC: {snapshot.EvaluatedAtUtc:O}");
-        report.AppendLine($"- Configuration status: {(snapshot.Evaluation.IsOperational ? "COMPLETE" : "INCOMPLETE")}");
+        report.AppendLine($"- Configuration status: {(snapshot.Evaluation.IsComplete ? "COMPLETE" : "INCOMPLETE")}");
         if (pack is not null) report.AppendLine($"- Instruction pack: {pack.PackVersion}");
         report.AppendLine();
         report.AppendLine("## Configuration Requirements");
@@ -33,23 +33,21 @@ public sealed class CommissioningReportRenderer
         report.AppendLine("3. Secret values are obtained from the declared secret provider and are never printed in this runbook.");
         report.AppendLine("4. Restart or reload the application as its deployment instructions require.");
         report.AppendLine("5. Return to Aegis.Configuration and confirm configuration status is COMPLETE.");
-        report.AppendLine("6. Use Aegis.Diagnostics separately to verify runtime health and dependency connectivity.");
         report.AppendLine();
         report.AppendLine("## Administrator Sign-off");
         report.AppendLine("Administrator: ____________________");
         report.AppendLine("Date: ____________________");
         report.AppendLine("Notes: ____________________");
         report.AppendLine();
-        report.AppendLine("> Aegis.Configuration reports configuration completeness only. Runtime health belongs to Aegis.Diagnostics. Secret values are intentionally excluded.");
+        report.AppendLine("> Secret values are intentionally excluded. This runbook describes configuration completeness only.");
         return report.ToString();
     }
 
     private static string DisplayState(ConfigurationState state) => state switch
     {
         ConfigurationState.Missing => "MISSING",
-        ConfigurationState.NotRequired => "NOT CONFIGURED",
-        ConfigurationState.Invalid => "INCOMPLETE",
-        ConfigurationState.ConfiguredUnverified or ConfigurationState.Verified => "CONFIGURED",
+        ConfigurationState.OptionalNotConfigured => "OPTIONAL / NOT CONFIGURED",
+        ConfigurationState.Configured => "CONFIGURED",
         _ => state.ToString().ToUpperInvariant()
     };
 
