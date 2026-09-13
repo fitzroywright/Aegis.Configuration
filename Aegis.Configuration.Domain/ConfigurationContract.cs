@@ -1,7 +1,7 @@
 namespace Aegis.Configuration.Domain;
 
-public enum ConfigurationRequirementKind { Configuration, Secret, ExternalService, Diagnostic }
-public enum ConfigurationState { NotRequired, Missing, Invalid, ConfiguredUnverified, Verified }
+public enum ConfigurationRequirementKind { Configuration, Secret, ExternalService }
+public enum ConfigurationState { OptionalNotConfigured, Missing, Configured }
 
 public sealed record ApplicationConfigurationContract(
     string ApplicationId,
@@ -20,9 +20,7 @@ public sealed record ConfigurationRequirement(
     string Purpose,
     string? ConfigurationKey = null,
     string? SecretName = null,
-    string? Validator = null,
     string? InstructionId = null,
-    bool FingerprintSafe = false,
     bool? IsConfigured = null,
     string? SafeDisplayValue = null,
     string? Example = null,
@@ -30,11 +28,9 @@ public sealed record ConfigurationRequirement(
 
 public sealed record ConfigurationEvaluation(string ApplicationId, string Version, IReadOnlyList<RequirementEvaluation> Requirements)
 {
-    // Configuration answers only whether required values have been supplied.
-    // Reachability, authentication, health and operational validation belong to Aegis.Diagnostics.
-    public bool IsOperational => Requirements
+    public bool IsComplete => Requirements
         .Where(x => x.Required)
-        .All(x => x.State is ConfigurationState.ConfiguredUnverified or ConfigurationState.Verified);
+        .All(x => x.State == ConfigurationState.Configured);
 }
 
 public sealed record RequirementEvaluation(
