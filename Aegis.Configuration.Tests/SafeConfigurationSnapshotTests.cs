@@ -6,7 +6,7 @@ namespace Aegis.Configuration.Tests;
 public sealed class SafeConfigurationSnapshotTests
 {
     [Fact]
-    public async Task CaptureAsync_NeverFingerprintsSecretValues()
+    public async Task CaptureAsync_StoresOnlySecretPresence()
     {
         ApplicationConfigurationContract contract = new("app", "App", "1", [new("secret", "Secret", ConfigurationRequirementKind.Secret, true, "Purpose", SecretName: "secret", Sensitive: true)]);
         ConfigurationEvaluation evaluation = new("app", "1", [new("secret", "Secret", true, ConfigurationState.Configured, "Configured", Sensitive: true)]);
@@ -14,7 +14,7 @@ public sealed class SafeConfigurationSnapshotTests
         SafeConfigurationSnapshot snapshot = await factory.CaptureAsync(contract, evaluation);
         SafeRequirementSnapshot result = Assert.Single(snapshot.Requirements);
         Assert.True(result.ValuePresent);
-        Assert.Null(result.ValueFingerprint);
+        Assert.Equal(ConfigurationState.Configured, result.State);
     }
 
     private sealed class Resolver(string value) : IConfigurationValueResolver
