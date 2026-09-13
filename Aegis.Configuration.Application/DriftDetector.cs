@@ -27,9 +27,9 @@ public sealed class DriftDetector
 
     private static DriftSeverity Classify(ConfigurationState? previous, ConfigurationState current)
     {
-        if (current is ConfigurationState.Missing or ConfigurationState.Invalid) return DriftSeverity.Critical;
-        if (current == ConfigurationState.ConfiguredUnverified && previous == ConfigurationState.Verified) return DriftSeverity.Warning;
-        if (current == ConfigurationState.Verified) return DriftSeverity.Improved;
+        if (current == ConfigurationState.Missing) return DriftSeverity.Critical;
+        if (current == ConfigurationState.Configured && previous != ConfigurationState.Configured) return DriftSeverity.Improved;
+        if (current == ConfigurationState.OptionalNotConfigured) return DriftSeverity.Warning;
         return DriftSeverity.Warning;
     }
 }
