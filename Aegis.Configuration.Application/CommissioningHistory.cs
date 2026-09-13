@@ -7,7 +7,7 @@ public sealed record CommissioningHistoryEntry(
     DateTimeOffset RecordedAtUtc,
     string ApplicationId,
     string ApplicationVersion,
-    bool IsOperational,
+    bool IsComplete,
     IReadOnlyList<RequirementEvaluation> Requirements);
 
 public interface ICommissioningHistoryStore
