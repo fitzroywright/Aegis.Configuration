@@ -7,15 +7,7 @@ public interface IConfigurationValueResolver
     ValueTask<string?> ResolveAsync(ConfigurationRequirement requirement, CancellationToken cancellationToken = default);
 }
 
-public interface IConfigurationRequirementValidator
-{
-    bool CanValidate(ConfigurationRequirement requirement);
-    ValueTask<(bool Success, string Message)> ValidateAsync(ConfigurationRequirement requirement, string value, CancellationToken cancellationToken = default);
-}
-
-public sealed class ConfigurationEvaluator(
-    IConfigurationValueResolver valueResolver,
-    IEnumerable<IConfigurationRequirementValidator> validators)
+public sealed class ConfigurationEvaluator(IConfigurationValueResolver valueResolver)
 {
     public async ValueTask<ConfigurationEvaluation> EvaluateAsync(
         ApplicationConfigurationContract contract,
@@ -25,41 +17,40 @@ public sealed class ConfigurationEvaluator(
 
         foreach (ConfigurationRequirement requirement in contract.Requirements)
         {
-            // Preferred V1 path: the application publishes whether the value is configured
-            // and, when safe, a display value. Configuration does not probe dependencies.
+            bool configured;
+            string? safeDisplayValue = null;
+
             if (requirement.IsConfigured.HasValue)
             {
-                bool configured = requirement.IsConfigured.Value;
-                ConfigurationState state = configured
-                    ? ConfigurationState.ConfiguredUnverified
-                    : requirement.Required ? ConfigurationState.Missing : ConfigurationState.NotRequired;
-                string message = configured
-                    ? "Configured. Operational validation belongs to Aegis.Diagnostics."
-                    : requirement.Required ? "Required value is missing." : "Optional value is not configured.";
-
-                results.Add(new(
-                    requirement.Id, requirement.DisplayName, requirement.Required, state, message,
-                    requirement.Purpose,
-                    requirement.Sensitive ? null : requirement.SafeDisplayValue,
-                    requirement.Example,
-                    requirement.Sensitive));
-                continue;
+                configured = requirement.IsConfigured.Value;
+                safeDisplayValue = requirement.Sensitive ? null : requirement.SafeDisplayValue;
+            }
+            else
+            {
+                string? value = await valueResolver.ResolveAsync(requirement, cancellationToken);
+                configured = !string.IsNullOrWhiteSpace(value);
+                safeDisplayValue = requirement.Sensitive ? null : requirement.SafeDisplayValue;
             }
 
-            // Backward compatibility for existing contracts that publish a configuration key.
-            string? value = await valueResolver.ResolveAsync(requirement, cancellationToken);
-            bool present = !string.IsNullOrWhiteSpace(value);
-            ConfigurationState fallbackState = present
-                ? ConfigurationState.ConfiguredUnverified
-                : requirement.Required ? ConfigurationState.Missing : ConfigurationState.NotRequired;
-            string fallbackMessage = present
-                ? "Configured. Operational validation belongs to Aegis.Diagnostics."
-                : requirement.Required ? "Required value is missing." : "Optional value is not configured.";
+            ConfigurationState state = configured
+                ? ConfigurationState.Configured
+                : requirement.Required ? ConfigurationState.Missing : ConfigurationState.OptionalNotConfigured;
+
+            string message = state switch
+            {
+                ConfigurationState.Configured => "Configured.",
+                ConfigurationState.Missing => "Required value is missing.",
+                _ => "Optional value is not configured."
+            };
 
             results.Add(new(
-                requirement.Id, requirement.DisplayName, requirement.Required, fallbackState, fallbackMessage,
+                requirement.Id,
+                requirement.DisplayName,
+                requirement.Required,
+                state,
+                message,
                 requirement.Purpose,
-                requirement.Sensitive ? null : requirement.SafeDisplayValue,
+                safeDisplayValue,
                 requirement.Example,
                 requirement.Sensitive));
         }
