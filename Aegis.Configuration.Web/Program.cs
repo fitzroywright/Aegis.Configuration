@@ -16,7 +16,6 @@ DirectoryContractStore contractStore = new(contractDirectory);
 builder.Services.AddSingleton<IConfigurationContractStore>(contractStore);
 builder.Services.AddSingleton<IConfigurationContractRegistrationStore>(contractStore);
 builder.Services.AddSingleton(new InstructionPackCatalog(instructionDirectory));
-builder.Services.AddSingleton<IConfigurationValueResolver, RuntimeConfigurationValueResolver>();
 builder.Services.AddSingleton<ConfigurationEvaluator>();
 builder.Services.AddSingleton<CommissioningService>();
 builder.Services.AddSingleton<CommissioningReportRenderer>();
@@ -39,6 +38,15 @@ app.MapGet("/applications/{applicationId}", async (string applicationId, IConfig
     if (contract is null) return Results.NotFound();
     ConfigurationEvaluation evaluation = await evaluator.EvaluateAsync(contract, ct);
     return Html(Page(contract.DisplayName, $"Applications › {E(contract.DisplayName)}", RenderApplication(contract, evaluation, detailsOnly: true)));
+});
+
+app.MapGet("/runbooks", async (IConfigurationContractStore store, CancellationToken ct) =>
+{
+    IReadOnlyList<ApplicationConfigurationContract> contracts = await store.LoadAllAsync(ct);
+    string body = contracts.Count == 0
+        ? "<section class='panel empty'><h2>NO RUNBOOKS AVAILABLE</h2><p>Runbooks appear after applications register their configuration requirements.</p></section>"
+        : "<section class='panel'><div class='sectiontitle'>Configuration Runbooks</div><div class='actions' style='margin:10px'>" + string.Join("", contracts.OrderBy(x => x.DisplayName).Select(x => $"<a class='btn' href='/runbooks/{Uri.EscapeDataString(x.ApplicationId)}'>{E(x.DisplayName)} · {E(x.Version)}</a>")) + "</div></section>";
+    return Html(Page("Runbooks", "Runbooks", body));
 });
 
 app.MapGet("/runbooks/{applicationId}", async (string applicationId, CommissioningService service, InstructionPackCatalog packs, CommissioningReportRenderer renderer, CancellationToken ct) =>
@@ -77,7 +85,7 @@ static string Page(string title, string crumb, string content) => $$"""
 @media(max-width:900px){.shell{grid-template-columns:72px 1fr}.nav a{min-height:62px;font-size:11px}.appgrid{grid-template-columns:1fr 1fr}.actions{grid-column:1/-1;grid-template-columns:repeat(3,1fr)}.tr{grid-template-columns:1fr .7fr 1.2fr .8fr}.tr .desc,.tr .example{display:none}.title{font-size:27px}}
 @media(max-width:600px){body{font-size:13px}.shell{display:block}.rail{height:58px;padding:5px 8px;display:flex;align-items:center;border-bottom:3px solid var(--orange);position:sticky;top:0;z-index:2}.brandcap{width:42px;height:38px;margin:0 8px 0 0;border-radius:20px 0 0 20px}.nav{display:none}.main{padding:8px 8px 74px}.mast{border:0;padding:0 4px 5px}.title{font-size:22px}.tag{display:none}.crumb{margin:5px 0}.appgrid{grid-template-columns:1fr;padding:7px}.actions{grid-column:auto;grid-template-columns:1fr}.identity,.status,.actions{padding:10px}.meta{grid-template-columns:90px 1fr}.table{gap:6px;padding:7px}.thead{display:none}.tr{display:block;border:1px solid var(--line);border-radius:9px;background:#071522;padding:8px}.tr>div{padding:2px 4px}.tr .desc,.tr .example{display:none}.tr .name{font-weight:900;font-size:14px}.tr .reqflag{float:right}.tr .value{color:var(--muted);font-size:12px}.footer{position:fixed;bottom:0;left:0;right:0;margin:0;background:#06111c;border-top:2px solid var(--orange);justify-content:space-around;padding:12px 6px;z-index:3}.footer a{font-size:11px}.curveback{width:48px;height:42px}.runhead{display:block}.runhead .btn{margin-top:10px}}
 @media print{body{background:#fff;color:#000}.rail,.mast,.crumb,.footer,.curveback,.runhead .btn{display:none!important}.shell{display:block}.main{padding:0}.panel,.runbook pre{border:0;background:#fff;color:#000}.runbook{margin:0;padding:0}}
-</style></head><body><button class="curveback" aria-label="Back" onclick="history.back()"></button><div class="shell"><aside class="rail"><div class="brandcap"></div><nav class="nav"><a href="/">DASHBOARD</a><a class="active" href="/">APPLICATIONS</a><a href="/">RUNBOOKS</a></nav></aside><main class="main"><header class="mast"><div class="title"><b>AEGIS</b> CONFIGURATION</div><div class="tag">KNOW WHAT IS REQUIRED. KNOW WHAT IS CONFIGURED.</div></header><div class="crumb">⌂ &nbsp; {{crumb}}</div>{{content}}<footer class="footer"><a href="/">Configuration</a><a href="/api/contracts">Contracts</a><span>A Safer Tomorrow</span></footer></main></div></body></html>
+</style></head><body><button class="curveback" aria-label="Back" onclick="history.back()"></button><div class="shell"><aside class="rail"><div class="brandcap"></div><nav class="nav"><a href="/">DASHBOARD</a><a class="active" href="/">APPLICATIONS</a><a href="/runbooks">RUNBOOKS</a></nav></aside><main class="main"><header class="mast"><div class="title"><b>AEGIS</b> CONFIGURATION</div><div class="tag">KNOW WHAT IS REQUIRED. KNOW WHAT IS CONFIGURED.</div></header><div class="crumb">⌂ &nbsp; {{crumb}}</div>{{content}}<footer class="footer"><a href="/">Configuration</a><a href="/api/contracts">Contracts</a><span>A Safer Tomorrow</span></footer></main></div></body></html>
 """;
 
 static string RenderApplication(ApplicationConfigurationContract contract, ConfigurationEvaluation evaluation, bool detailsOnly = false)
