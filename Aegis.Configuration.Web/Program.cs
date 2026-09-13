@@ -8,92 +8,75 @@ using Aegis.Configuration.Infrastructure;
 using Common.Secrets;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
-builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 string contractDirectory = builder.Configuration["AegisConfiguration:ContractDirectory"] ?? Path.Combine(builder.Environment.ContentRootPath, "contracts");
 string dataDirectory = builder.Configuration["AegisConfiguration:DataDirectory"] ?? Path.Combine(builder.Environment.ContentRootPath, "data");
 string instructionDirectory = builder.Configuration["AegisConfiguration:InstructionDirectory"] ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "instruction-packs"));
 
 builder.Services.AddCommonSecrets(builder.Configuration);
-builder.Services.AddCommonSecretsDiagnostics();
 DirectoryContractStore contractStore = new(contractDirectory);
 builder.Services.AddSingleton<IConfigurationContractStore>(contractStore);
 builder.Services.AddSingleton<IConfigurationContractRegistrationStore>(contractStore);
 builder.Services.AddSingleton<ICommissioningHistoryStore>(new JsonCommissioningHistoryStore(Path.Combine(dataDirectory, "commissioning-history.jsonl")));
 builder.Services.AddSingleton(new InstructionPackCatalog(instructionDirectory));
-builder.Services.AddSingleton<ISecretValueResolver, CommonSecretsValueResolver>();
 builder.Services.AddSingleton<IConfigurationValueResolver, RuntimeConfigurationValueResolver>();
-builder.Services.AddSingleton<IConfigurationRequirementValidator, SecretResolvedRequirementValidator>();
-builder.Services.AddSingleton<IConfigurationRequirementValidator, UriRequirementValidator>();
-builder.Services.AddHttpClient<HttpEndpointRequirementValidator>();
-builder.Services.AddSingleton<IConfigurationRequirementValidator>(p => p.GetRequiredService<HttpEndpointRequirementValidator>());
-builder.Services.AddSingleton<IConfigurationRequirementValidator, TcpEndpointRequirementValidator>();
-builder.Services.AddSingleton<IConfigurationRequirementValidator, PostgreSqlRequirementValidator>();
 builder.Services.AddSingleton<ConfigurationEvaluator>();
 builder.Services.AddSingleton<CommissioningService>();
 builder.Services.AddSingleton<CommissioningRecorder>();
 builder.Services.AddSingleton<CommissioningReportRenderer>();
-builder.Services.AddSingleton<ConfigurationReadinessScorer>();
-builder.Services.AddSingleton<DriftDetector>();
 builder.Services.AddSingleton<FleetStatusCache>();
 builder.Services.AddSingleton<ContractValidator>();
 WebApplication app = builder.Build();
 
-app.MapGet("/", (FleetStatusCache cache, ConfigurationReadinessScorer scorer) =>
+app.MapGet("/", async (IConfigurationContractStore store, ConfigurationEvaluator evaluator, CancellationToken ct) =>
 {
-    FleetStatusSnapshot? fleet = cache.Current;
-    string cards = fleet is null ? "<section class='panel'><h2>NO FLEET SNAPSHOT</h2><p>Run VERIFY FLEET to execute commissioning verification.</p></section>" : string.Join("", fleet.Applications.Select(x => RenderApplication(x, scorer.Calculate(x.Evaluation))));
-    string stamp = fleet is null ? "UNVERIFIED" : fleet.CapturedAtUtc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
+    IReadOnlyList<ApplicationConfigurationContract> contracts = await store.LoadAllAsync(ct);
+    List<(ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation)> rows = [];
+    foreach (ApplicationConfigurationContract contract in contracts)
+        rows.Add((contract, await evaluator.EvaluateAsync(contract, ct)));
+
+    string cards = rows.Count == 0
+        ? "<section class='panel empty'><h2>NO APPLICATIONS REGISTERED</h2><p>Start an Aegis application to publish its configuration contract.</p></section>"
+        : string.Join("", rows.Select(x => RenderApplication(x.Contract, x.Evaluation)));
+
     return Results.Content($$$"""
-<!doctype html><html><head><title>AEGIS CONFIGURATION // LCARS</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>
-:root{--bg:#050509;--ink:#f6f1ff;--orange:#ff9f40;--salmon:#ff7f7f;--lav:#c7a7ff;--blue:#7aa7ff;--gold:#ffd166;--green:#72e6a0;--dim:#2a2740}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:Arial,Helvetica,sans-serif;letter-spacing:.04em}main{max-width:1400px;margin:auto;padding:18px}.lcars{display:grid;grid-template-columns:170px 1fr;gap:12px}.rail{background:var(--orange);border-radius:80px 0 0 80px;min-height:90vh;padding-top:100px;color:#080808;font-weight:900}.rail div{padding:12px 18px;border-top:8px solid var(--bg);text-align:right}.rail .salmon{background:var(--salmon)}.rail .lav{background:var(--lav)}.rail .blue{background:var(--blue)}.top{display:flex;align-items:end;gap:8px;margin-bottom:14px}.cap{height:54px;border-radius:0 32px 32px 0;background:var(--orange);width:160px}.title{font-size:clamp(25px,4vw,52px);font-weight:900;flex:1;text-align:right}.sub{color:var(--lav);font-size:13px}.actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.btn{border:0;border-radius:22px;padding:11px 20px;background:var(--orange);color:#080808;font-weight:900;cursor:pointer;text-decoration:none}.btn.blue{background:var(--blue)}.btn.lav{background:var(--lav)}.panel{border-top:10px solid var(--lav);background:#101018;padding:18px;margin:14px 0;border-radius:0 0 18px 18px}.apphead{display:flex;justify-content:space-between;gap:20px;align-items:center}.score{font-size:38px;font-weight:900}.Green{color:var(--green)}.Yellow{color:var(--gold)}.Orange{color:var(--orange)}.Red{color:var(--salmon)}.req{display:grid;grid-template-columns:1.1fr .55fr 2fr;gap:12px;padding:10px 0;border-top:2px solid var(--dim)}.pill{display:inline-block;padding:5px 10px;border-radius:14px;background:var(--dim)}.Verified{background:#174f35}.Missing{background:#692929}.Invalid{background:#713d19}.ConfiguredUnverified{background:#665716}.muted{color:#aaa5bc}a{color:var(--blue)}@media(max-width:760px){.lcars{grid-template-columns:42px 1fr}.rail div{font-size:0;padding:12px 4px}.req{grid-template-columns:1fr}.cap{width:55px}}
-</style></head><body><main><div class="lcars"><aside class="rail"><div>CONFIG</div><div class="salmon">STATUS</div><div class="lav">DRIFT</div><div class="blue">SETUP</div></aside><section><div class="top"><div class="cap"></div><div><div class="title">AEGIS CONFIGURATION</div><div class="sub">LCARS // APPLICATION COMMISSIONING & CONFIGURATION</div></div></div><div class="actions"><form method="post" action="/verify"><button class="btn">VERIFY FLEET</button></form><a class="btn blue" href="/api/history">HISTORY</a><a class="btn lav" href="/api/contracts">CONTRACTS</a></div><div class="sub">LAST VERIFIED: {{{stamp}}}</div>{{{cards}}}</section></div></main></body></html>
+<!doctype html><html><head><title>Aegis Configuration</title><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>
+:root{--bg:#02070d;--panel:#071421;--panel2:#0b1c2b;--line:#27547d;--ink:#eaf3ff;--muted:#9db7d4;--orange:#ff9b2f;--blue:#7896ff;--green:#50e59a;--yellow:#ffd05c;--red:#ff7777}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.35 Arial,Helvetica,sans-serif}a{color:inherit;text-decoration:none}.shell{min-height:100vh;display:grid;grid-template-columns:92px 1fr}.rail{padding:10px 6px;background:#02070d}.brandcap{height:52px;background:var(--blue);border-radius:28px 0 0 28px;margin-bottom:8px}.nav{display:grid;gap:5px}.nav a{min-height:70px;display:grid;place-items:center;text-align:center;background:var(--blue);color:#06101a;font-weight:800;border-radius:20px 0 0 20px;padding:6px}.nav a.active{background:var(--orange)}.main{padding:10px 14px 28px;min-width:0}.mast{display:flex;align-items:center;gap:14px;border-bottom:4px solid var(--orange);padding:2px 0 8px}.title{font-size:clamp(24px,3vw,42px);font-weight:900;letter-spacing:.02em}.title b{color:var(--orange)}.tag{color:var(--muted);font-size:12px}.crumb{margin:8px 0;padding:7px 12px;border:1px solid var(--line);border-radius:16px;background:var(--panel)}.panel{border:2px solid var(--line);border-radius:14px;background:linear-gradient(180deg,var(--panel2),var(--panel));margin:9px 0;overflow:hidden}.appgrid{display:grid;grid-template-columns:minmax(240px,.9fr) minmax(210px,.75fr) minmax(210px,.65fr);gap:8px;padding:10px}.identity,.status,.actions{border:1px solid var(--line);border-radius:9px;padding:11px}.identity h2{margin:0 0 2px;font-size:20px}.muted{color:var(--muted)}.meta{display:grid;grid-template-columns:105px 1fr;gap:3px;margin-top:9px}.complete{color:var(--green);font-size:22px;font-weight:900}.incomplete{color:var(--yellow);font-size:22px;font-weight:900}.actions{display:grid;gap:6px}.btn{display:block;border:1px solid var(--blue);border-radius:8px;padding:10px 12px;text-align:center}.btn.primary{background:#0d55d8}.sectiontitle{padding:7px 12px;font-weight:900;color:var(--orange);border-top:1px solid var(--line)}.table{display:grid}.tr{display:grid;grid-template-columns:1fr 1.6fr .55fr 1.25fr .8fr 1.25fr;border-top:1px solid #24425e}.tr>div{padding:8px 10px;min-width:0;overflow-wrap:anywhere}.thead{background:#122a3d;font-weight:800}.badge{display:inline-block;padding:3px 8px;border-radius:12px;font-weight:800}.required{background:#ff7777;color:#101010}.optional{background:#7896ff;color:#06101a}.ok{color:var(--green)}.missing{color:var(--red)}.footer{margin-top:12px;border-top:3px solid var(--orange);padding:8px;color:var(--muted);display:flex;gap:18px;flex-wrap:wrap}.curveback{position:fixed;left:5px;top:5px;width:84px;height:48px;border:0;border-radius:28px 0 0 28px;background:transparent;cursor:pointer;z-index:3}.empty{padding:24px}
+@media(max-width:900px){.shell{grid-template-columns:72px 1fr}.nav a{min-height:62px;font-size:11px}.appgrid{grid-template-columns:1fr 1fr}.actions{grid-column:1/-1;grid-template-columns:repeat(3,1fr)}.tr{grid-template-columns:1fr .7fr 1.2fr .8fr}.tr .desc,.tr .example{display:none}.title{font-size:27px}}
+@media(max-width:600px){body{font-size:13px}.shell{display:block}.rail{height:58px;padding:5px 8px;display:flex;align-items:center;border-bottom:3px solid var(--orange);position:sticky;top:0;z-index:2}.brandcap{width:42px;height:38px;margin:0 8px 0 0;border-radius:20px 0 0 20px}.nav{display:none}.main{padding:8px 8px 74px}.mast{border:0;padding:0 4px 5px}.title{font-size:22px}.tag{display:none}.crumb{margin:5px 0}.appgrid{grid-template-columns:1fr;padding:7px}.actions{grid-column:auto;grid-template-columns:1fr}.identity,.status,.actions{padding:10px}.meta{grid-template-columns:90px 1fr}.table{gap:6px;padding:7px}.thead{display:none}.tr{display:block;border:1px solid var(--line);border-radius:9px;background:#071522;padding:8px}.tr>div{padding:2px 4px}.tr .desc,.tr .example{display:none}.tr .name{font-weight:900;font-size:14px}.tr .reqflag{float:right}.tr .value{color:var(--muted);font-size:12px}.footer{position:fixed;bottom:0;left:0;right:0;margin:0;background:#06111c;border-top:2px solid var(--orange);justify-content:space-around;padding:12px 6px;z-index:3}.footer a{font-size:11px}.curveback{width:48px;height:42px}}
+</style></head><body><button class="curveback" aria-label="Back" onclick="history.back()"></button><div class="shell"><aside class="rail"><div class="brandcap"></div><nav class="nav"><a href="/">DASHBOARD</a><a class="active" href="/">APPLICATIONS</a><a href="/api/contracts">RUNBOOKS</a><a href="/api/contracts">SETTINGS</a></nav></aside><main class="main"><header class="mast"><div><div class="title"><b>AEGIS</b> CONFIGURATION</div><div class="tag">KNOW WHAT IS REQUIRED. KNOW WHAT IS CONFIGURED.</div></div></header><div class="crumb">⌂ &nbsp; Applications &nbsp; › &nbsp; Configuration Registry</div>{{{cards}}}<footer class="footer"><a href="/">Configuration</a><a href="/api/contracts">Contracts</a><a href="/health">Service Status</a><span>A Safer Tomorrow</span></footer></main></div></body></html>
 """, "text/html");
 });
 
-app.MapPost("/verify", async (CommissioningService service, CommissioningRecorder recorder, FleetStatusCache cache, CancellationToken ct) => { IReadOnlyList<CommissioningSnapshot> snapshots = await service.EvaluateAllAsync(ct); foreach (CommissioningSnapshot snapshot in snapshots) await recorder.RecordAsync(snapshot, ct); cache.Replace(snapshots); return Results.Redirect("/"); });
-app.MapPost("/api/verify", async (CommissioningService service, CommissioningRecorder recorder, FleetStatusCache cache, CancellationToken ct) => { IReadOnlyList<CommissioningSnapshot> snapshots = await service.EvaluateAllAsync(ct); foreach (CommissioningSnapshot snapshot in snapshots) await recorder.RecordAsync(snapshot, ct); return Results.Ok(cache.Replace(snapshots)); });
 app.MapPost("/api/contracts/register", async (ApplicationConfigurationContract contract, HttpContext context, IConfigurationContractRegistrationStore store, ContractValidator validator, ISecretProvider secrets, FleetStatusCache cache, CancellationToken ct) =>
 {
     ContractValidationResult validation = validator.Validate(contract);
     if (!validation.IsValid) return Results.BadRequest(validation);
     if (!DirectoryContractStore.IsSafeApplicationId(contract.ApplicationId)) return Results.BadRequest(new { error = "ApplicationId may contain only letters, digits, '.', '-' and '_'." });
-
     string providedKey = context.Request.Headers["X-Configuration-Registration-Key"].FirstOrDefault() ?? string.Empty;
     string secretName = $"configuration/registration/{contract.ApplicationId}";
     string? expectedKey = await secrets.GetAsync(secretName, ct);
     if (string.IsNullOrWhiteSpace(expectedKey) || !FixedTimeEquals(providedKey, expectedKey)) return Results.Unauthorized();
-
-    try
-    {
-        ConfigurationContractRegistrationResult result = await store.RegisterAsync(contract, ct);
-        if (result.Changed) cache.Invalidate();
-        return Results.Ok(result);
-    }
-    catch (InvalidDataException exception) { return Results.BadRequest(new { error = exception.Message }); }
+    try { ConfigurationContractRegistrationResult result = await store.RegisterAsync(contract, ct); if (result.Changed) cache.Invalidate(); return Results.Ok(result); }
+    catch (InvalidDataException ex) { return Results.BadRequest(new { error = ex.Message }); }
 });
-app.MapGet("/api/fleet", (FleetStatusCache cache) => cache.Current is null ? Results.NoContent() : Results.Ok(cache.Current));
 app.MapGet("/api/contracts", async (IConfigurationContractStore store, CancellationToken ct) => Results.Ok(await store.LoadAllAsync(ct)));
-app.MapGet("/api/history", async (ICommissioningHistoryStore history, CancellationToken ct) => Results.Ok(await history.ReadAsync(null, ct)));
-app.MapGet("/api/commissioning", async (CommissioningService service, CancellationToken ct) => Results.Ok(await service.EvaluateAllAsync(ct)));
-app.MapPost("/api/commission/{applicationId}", async (string applicationId, CommissioningService service, CommissioningRecorder recorder, CancellationToken ct) => { CommissioningSnapshot? snapshot = (await service.EvaluateAllAsync(ct)).FirstOrDefault(x => string.Equals(x.ApplicationId, applicationId, StringComparison.OrdinalIgnoreCase)); return snapshot is null ? Results.NotFound() : Results.Ok(await recorder.RecordAsync(snapshot, ct)); });
 app.MapGet("/api/report/{applicationId}", async (string applicationId, CommissioningService service, InstructionPackCatalog packs, CommissioningReportRenderer renderer, CancellationToken ct) => { CommissioningSnapshot? snapshot = (await service.EvaluateAllAsync(ct)).FirstOrDefault(x => string.Equals(x.ApplicationId, applicationId, StringComparison.OrdinalIgnoreCase)); if (snapshot is null) return Results.NotFound(); return Results.Text(renderer.RenderMarkdown(snapshot, await packs.FindAsync(snapshot.ApplicationId, snapshot.ApplicationVersion, ct)), "text/markdown"); });
-app.MapGet("/api/instructions/{applicationId}", async (string applicationId, CommissioningService service, InstructionPackCatalog packs, CancellationToken ct) => { CommissioningSnapshot? snapshot = (await service.EvaluateAllAsync(ct)).FirstOrDefault(x => string.Equals(x.ApplicationId, applicationId, StringComparison.OrdinalIgnoreCase)); return snapshot is null ? Results.NotFound() : Results.Ok(await packs.FindAsync(snapshot.ApplicationId, snapshot.ApplicationVersion, ct)); });
-app.MapGet("/api/drift/{applicationId}", async (string applicationId, CommissioningService service, ICommissioningHistoryStore history, DriftDetector detector, CancellationToken ct) => { CommissioningSnapshot? current = (await service.EvaluateAllAsync(ct)).FirstOrDefault(x => string.Equals(x.ApplicationId, applicationId, StringComparison.OrdinalIgnoreCase)); CommissioningHistoryEntry? previous = (await history.ReadAsync(applicationId, ct)).FirstOrDefault(); if (current is null) return Results.NotFound(); return previous is null ? Results.Ok(new { applicationId, status = "No baseline recorded" }) : Results.Ok(detector.Compare(previous, current)); });
 app.MapPost("/api/contracts/validate", (ApplicationConfigurationContract contract, ContractValidator validator) => Results.Ok(validator.Validate(contract)));
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", service = "Aegis.Configuration" }));
 app.Run();
 
-static bool FixedTimeEquals(string left, string right)
-{
-    byte[] leftBytes = Encoding.UTF8.GetBytes(left);
-    byte[] rightBytes = Encoding.UTF8.GetBytes(right);
-    return leftBytes.Length == rightBytes.Length && CryptographicOperations.FixedTimeEquals(leftBytes, rightBytes);
-}
+static bool FixedTimeEquals(string left, string right) { byte[] a = Encoding.UTF8.GetBytes(left); byte[] b = Encoding.UTF8.GetBytes(right); return a.Length == b.Length && CryptographicOperations.FixedTimeEquals(a, b); }
 
-static string RenderApplication(CommissioningSnapshot snapshot, ConfigurationReadinessScore score)
+static string RenderApplication(ApplicationConfigurationContract contract, ConfigurationEvaluation evaluation)
 {
     HtmlEncoder e = HtmlEncoder.Default;
-    string requirements = string.Join("", snapshot.Evaluation.Requirements.Select(r => $"<div class='req'><strong>{e.Encode(r.DisplayName)}</strong><div><span class='pill {r.State}'>{r.State}</span></div><div class='muted'>{e.Encode(r.Message)}</div></div>"));
-    string id = Uri.EscapeDataString(snapshot.ApplicationId);
-    return $"<section class='panel'><div class='apphead'><div><h2>{e.Encode(snapshot.ApplicationId)} <span class='muted'>V{e.Encode(snapshot.ApplicationVersion)}</span></h2><div>{(snapshot.Evaluation.IsOperational ? "CONFIGURATION READY" : "COMMISSIONING REQUIRED")}</div></div><div class='score {score.Grade}'>{score.Score:D3}%</div></div><p><a href='/api/instructions/{id}'>INSTRUCTIONS</a> // <a href='/api/report/{id}'>REPORT</a> // <a href='/api/drift/{id}'>DRIFT</a></p>{requirements}</section>";
+    int required = contract.Requirements.Count(x => x.Required);
+    int requiredConfigured = evaluation.Requirements.Count(x => x.Required && x.State is ConfigurationState.ConfiguredUnverified or ConfigurationState.Verified);
+    int optional = contract.Requirements.Count(x => !x.Required);
+    int optionalConfigured = evaluation.Requirements.Count(x => !x.Required && x.State is ConfigurationState.ConfiguredUnverified or ConfigurationState.Verified);
+    bool complete = required == requiredConfigured;
+    string id = Uri.EscapeDataString(contract.ApplicationId);
+    string requirements = string.Join("", evaluation.Requirements.Select(r => $"<div class='tr'><div class='name'>{e.Encode(r.DisplayName)}</div><div class='desc'>{e.Encode(r.Purpose ?? "")}</div><div class='reqflag'><span class='badge {(r.Required ? "required" : "optional")}'>{(r.Required ? "Required" : "Optional")}</span></div><div class='value'>{e.Encode(r.Sensitive ? "Protected / not displayed" : r.SafeDisplayValue ?? (r.State is ConfigurationState.Missing or ConfigurationState.NotRequired ? "Not configured" : "Configured"))}</div><div class='{(r.State is ConfigurationState.Missing ? "missing" : "ok")}'>{(r.State is ConfigurationState.Missing ? "● Missing" : r.State is ConfigurationState.NotRequired ? "○ Optional" : "● Configured")}</div><div class='example'>{e.Encode(r.Example ?? "")}</div></div>"));
+    return $"<section class='panel'><div class='appgrid'><div class='identity'><h2>{e.Encode(contract.DisplayName)}</h2><div class='muted'>{e.Encode(contract.Description ?? "Registered Aegis application")}</div><div class='meta'><b>Application ID</b><span>{e.Encode(contract.ApplicationId)}</span><b>Version</b><span>{e.Encode(contract.Version)}</span><b>Instance</b><span>{e.Encode(contract.InstanceId ?? "—")}</span><b>Site</b><span>{e.Encode(contract.SiteId ?? "—")}</span></div></div><div class='status'><div class='{(complete ? "complete" : "incomplete")}'>{(complete ? "✓ Complete" : "● Incomplete")}</div><p>{requiredConfigured}/{required} required &nbsp; {optionalConfigured}/{optional} optional</p><div class='muted'>{(complete ? "All required configuration values are supplied." : "One or more required configuration values are missing.")}</div></div><div class='actions'><a class='btn primary' href='/api/report/{id}'>View Runbook</a><a class='btn' href='/api/report/{id}'>Export / Print Runbook</a><a class='btn' href='/api/contracts'>Application Details</a></div></div><div class='sectiontitle'>Configuration Requirements</div><div class='table'><div class='tr thead'><div>Setting Name</div><div class='desc'>Description</div><div>Requirement</div><div>Current Value</div><div>Status</div><div class='example'>Example / Notes</div></div>{requirements}</div></section>";
 }
