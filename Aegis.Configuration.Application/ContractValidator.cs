@@ -6,15 +6,6 @@ public sealed record ContractValidationResult(bool IsValid, IReadOnlyList<string
 
 public sealed class ContractValidator
 {
-    private static readonly HashSet<string> KnownValidators = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "secret",
-        "uri",
-        "http",
-        "tcp",
-        "postgresql"
-    };
-
     public ContractValidationResult Validate(ApplicationConfigurationContract contract)
     {
         List<string> errors = [];
@@ -31,24 +22,13 @@ public sealed class ContractValidator
             else if (!ids.Add(requirement.Id)) errors.Add($"Duplicate requirement Id '{requirement.Id}'.");
             if (string.IsNullOrWhiteSpace(requirement.DisplayName)) errors.Add($"Requirement '{requirementName}' must declare DisplayName.");
             if (string.IsNullOrWhiteSpace(requirement.Purpose)) errors.Add($"Requirement '{requirementName}' must declare Purpose.");
+            if (!requirement.IsConfigured.HasValue) errors.Add($"Requirement '{requirementName}' must publish IsConfigured.");
 
-            if (requirement.Kind == ConfigurationRequirementKind.Secret)
-            {
-                if (string.IsNullOrWhiteSpace(requirement.SecretName)) errors.Add($"Secret requirement '{requirementName}' must declare SecretName.");
-                if (!string.IsNullOrWhiteSpace(requirement.ConfigurationKey)) errors.Add($"Secret requirement '{requirementName}' cannot declare ConfigurationKey.");
-                if (requirement.FingerprintSafe) errors.Add($"Secret requirement '{requirementName}' cannot enable FingerprintSafe.");
-                if (!string.IsNullOrWhiteSpace(requirement.Validator) && !string.Equals(requirement.Validator, "secret", StringComparison.OrdinalIgnoreCase))
-                    errors.Add($"Secret requirement '{requirementName}' must use the 'secret' validator when a validator is declared.");
-            }
-            else
-            {
-                if (string.IsNullOrWhiteSpace(requirement.ConfigurationKey)) errors.Add($"Non-secret requirement '{requirementName}' must declare ConfigurationKey.");
-                if (!string.IsNullOrWhiteSpace(requirement.SecretName)) errors.Add($"Non-secret requirement '{requirementName}' cannot declare SecretName.");
-                if (string.Equals(requirement.Validator, "secret", StringComparison.OrdinalIgnoreCase)) errors.Add($"Non-secret requirement '{requirementName}' cannot use the 'secret' validator.");
-            }
+            if (requirement.Sensitive && !string.IsNullOrWhiteSpace(requirement.SafeDisplayValue))
+                errors.Add($"Sensitive requirement '{requirementName}' cannot publish a display value.");
 
-            if (!string.IsNullOrWhiteSpace(requirement.Validator) && !KnownValidators.Contains(requirement.Validator))
-                errors.Add($"Requirement '{requirementName}' declares unknown validator '{requirement.Validator}'.");
+            if (requirement.Kind == ConfigurationRequirementKind.Secret && !string.IsNullOrWhiteSpace(requirement.ConfigurationKey))
+                errors.Add($"Secret requirement '{requirementName}' cannot declare ConfigurationKey.");
         }
 
         return new(errors.Count == 0, errors);

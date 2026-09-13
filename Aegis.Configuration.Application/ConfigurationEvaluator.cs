@@ -2,64 +2,42 @@ using Aegis.Configuration.Domain;
 
 namespace Aegis.Configuration.Application;
 
-public interface IConfigurationValueResolver
+public sealed class ConfigurationEvaluator
 {
-    ValueTask<string?> ResolveAsync(ConfigurationRequirement requirement, CancellationToken cancellationToken = default);
-}
-
-public interface IConfigurationRequirementValidator
-{
-    bool CanValidate(ConfigurationRequirement requirement);
-    ValueTask<(bool Success, string Message)> ValidateAsync(ConfigurationRequirement requirement, string value, CancellationToken cancellationToken = default);
-}
-
-public sealed class ConfigurationEvaluator(
-    IConfigurationValueResolver valueResolver,
-    IEnumerable<IConfigurationRequirementValidator> validators)
-{
-    public async ValueTask<ConfigurationEvaluation> EvaluateAsync(
+    public ValueTask<ConfigurationEvaluation> EvaluateAsync(
         ApplicationConfigurationContract contract,
         CancellationToken cancellationToken = default)
     {
-        List<RequirementEvaluation> results = [];
+        cancellationToken.ThrowIfCancellationRequested();
 
-        foreach (ConfigurationRequirement requirement in contract.Requirements)
+        RequirementEvaluation[] results = contract.Requirements.Select(requirement =>
         {
-            string? value = await valueResolver.ResolveAsync(requirement, cancellationToken);
-            if (string.IsNullOrWhiteSpace(value))
+            bool configured = requirement.IsConfigured == true;
+            ConfigurationState state = configured
+                ? ConfigurationState.Configured
+                : requirement.Required
+                    ? ConfigurationState.Missing
+                    : ConfigurationState.OptionalNotConfigured;
+
+            string message = state switch
             {
-                results.Add(new(
-                    requirement.Id,
-                    requirement.DisplayName,
-                    requirement.Required,
-                    requirement.Required ? ConfigurationState.Missing : ConfigurationState.NotRequired,
-                    requirement.Required ? "Required value is missing." : "Optional value is not configured."));
-                continue;
-            }
+                ConfigurationState.Configured => "Configured.",
+                ConfigurationState.Missing => "Required value is missing.",
+                _ => "Optional value is not configured."
+            };
 
-            IConfigurationRequirementValidator? validator = validators.FirstOrDefault(x => x.CanValidate(requirement));
-            if (validator is null)
-            {
-                ConfigurationState state = string.IsNullOrWhiteSpace(requirement.Validator)
-                    ? ConfigurationState.ConfiguredUnverified
-                    : ConfigurationState.Invalid;
-                string unavailableValidatorMessage = string.IsNullOrWhiteSpace(requirement.Validator)
-                    ? "Value is present but no validator is declared."
-                    : $"Declared validator '{requirement.Validator}' is unavailable.";
-
-                results.Add(new(requirement.Id, requirement.DisplayName, requirement.Required, state, unavailableValidatorMessage));
-                continue;
-            }
-
-            (bool success, string validationMessage) = await validator.ValidateAsync(requirement, value, cancellationToken);
-            results.Add(new(
+            return new RequirementEvaluation(
                 requirement.Id,
                 requirement.DisplayName,
                 requirement.Required,
-                success ? ConfigurationState.Verified : ConfigurationState.Invalid,
-                validationMessage));
-        }
+                state,
+                message,
+                requirement.Purpose,
+                requirement.Sensitive ? null : requirement.SafeDisplayValue,
+                requirement.Example,
+                requirement.Sensitive);
+        }).ToArray();
 
-        return new(contract.ApplicationId, contract.Version, results);
+        return ValueTask.FromResult(new ConfigurationEvaluation(contract.ApplicationId, contract.Version, results));
     }
 }

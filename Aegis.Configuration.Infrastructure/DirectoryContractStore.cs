@@ -8,12 +8,7 @@ namespace Aegis.Configuration.Infrastructure;
 
 public sealed class DirectoryContractStore(string directoryPath) : IConfigurationContractStore, IConfigurationContractRegistrationStore
 {
-    private static readonly JsonSerializerOptions jsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() }
-    };
-
+    private static readonly JsonSerializerOptions jsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
     private readonly ContractValidator validator = new();
 
     public async ValueTask<IReadOnlyList<ApplicationConfigurationContract>> LoadAllAsync(CancellationToken cancellationToken = default)
@@ -34,48 +29,42 @@ public sealed class DirectoryContractStore(string directoryPath) : IConfiguratio
         return contracts;
     }
 
-    public async ValueTask<ConfigurationContractRegistrationResult> RegisterAsync(
-        ApplicationConfigurationContract contract,
-        CancellationToken cancellationToken = default)
+    public async ValueTask<ConfigurationContractRegistrationResult> RegisterAsync(ApplicationConfigurationContract contract, CancellationToken cancellationToken = default)
     {
         ContractValidationResult validation = validator.Validate(contract);
-        if (!validation.IsValid)
-            throw new InvalidDataException(string.Join(" ", validation.Errors));
-
+        if (!validation.IsValid) throw new InvalidDataException(string.Join(" ", validation.Errors));
         string safeApplicationId = EnsureSafeApplicationId(contract.ApplicationId);
         Directory.CreateDirectory(directoryPath);
         string path = Path.Combine(directoryPath, $"{safeApplicationId}.configuration-contract.json");
-        byte[] content = JsonSerializer.SerializeToUtf8Bytes(contract, jsonOptions);
-        string hash = Convert.ToHexString(SHA256.HashData(content));
 
+        // The server, not the application, owns registration time. Every authenticated successful registration is a heartbeat,
+        // including an otherwise unchanged contract. This makes stale/unknown state trustworthy across all publishers.
+        ApplicationConfigurationContract stamped = contract with { LastRegisteredAtUtc = DateTimeOffset.UtcNow };
+        byte[] semanticContent = JsonSerializer.SerializeToUtf8Bytes(contract with { LastRegisteredAtUtc = null }, jsonOptions);
+        string hash = Convert.ToHexString(SHA256.HashData(semanticContent));
+        bool changed = true;
         if (File.Exists(path))
         {
             byte[] existing = await File.ReadAllBytesAsync(path, cancellationToken);
-            if (CryptographicOperations.FixedTimeEquals(SHA256.HashData(existing), SHA256.HashData(content)))
-                return new(contract.ApplicationId, contract.Version, false, hash);
+            try
+            {
+                ApplicationConfigurationContract? previous = JsonSerializer.Deserialize<ApplicationConfigurationContract>(existing, jsonOptions);
+                if (previous is not null)
+                {
+                    byte[] previousSemantic = JsonSerializer.SerializeToUtf8Bytes(previous with { LastRegisteredAtUtc = null }, jsonOptions);
+                    changed = !CryptographicOperations.FixedTimeEquals(SHA256.HashData(previousSemantic), SHA256.HashData(semanticContent));
+                }
+            }
+            catch (JsonException) { changed = true; }
         }
 
+        byte[] content = JsonSerializer.SerializeToUtf8Bytes(stamped, jsonOptions);
         string temporaryPath = path + ".tmp-" + Guid.NewGuid().ToString("N");
-        try
-        {
-            await File.WriteAllBytesAsync(temporaryPath, content, cancellationToken);
-            File.Move(temporaryPath, path, true);
-        }
-        finally
-        {
-            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
-        }
-
-        return new(contract.ApplicationId, contract.Version, true, hash);
+        try { await File.WriteAllBytesAsync(temporaryPath, content, cancellationToken); File.Move(temporaryPath, path, true); }
+        finally { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); }
+        return new(contract.ApplicationId, contract.Version, changed, hash, stamped.LastRegisteredAtUtc.Value);
     }
 
-    public static bool IsSafeApplicationId(string applicationId)
-        => !string.IsNullOrWhiteSpace(applicationId) && applicationId.All(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_');
-
-    private static string EnsureSafeApplicationId(string applicationId)
-    {
-        if (!IsSafeApplicationId(applicationId))
-            throw new InvalidDataException("ApplicationId may contain only letters, digits, '.', '-' and '_'.");
-        return applicationId;
-    }
+    public static bool IsSafeApplicationId(string applicationId) => !string.IsNullOrWhiteSpace(applicationId) && applicationId.All(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_');
+    private static string EnsureSafeApplicationId(string applicationId) { if (!IsSafeApplicationId(applicationId)) throw new InvalidDataException("ApplicationId may contain only letters, digits, '.', '-' and '_'."); return applicationId; }
 }

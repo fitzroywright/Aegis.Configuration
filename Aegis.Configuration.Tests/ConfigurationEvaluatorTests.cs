@@ -6,90 +6,58 @@ namespace Aegis.Configuration.Tests;
 public sealed class ConfigurationEvaluatorTests
 {
     [Fact]
-    public async Task MissingRequiredValueIsReportedMissing()
+    public async Task RequiredSettingReportedMissingIsIncomplete()
     {
         ApplicationConfigurationContract contract = new("app", "App", "1.0", [
-            new("db", "Database", ConfigurationRequirementKind.Configuration, true, "Required database", "ConnectionStrings:App")
+            new("db", "Database", ConfigurationRequirementKind.Configuration, true, "Required database", ConfigurationKey: "ConnectionStrings:App", IsConfigured: false)
         ]);
-        ConfigurationEvaluator evaluator = new(new EmptyResolver(), []);
 
-        ConfigurationEvaluation result = await evaluator.EvaluateAsync(contract);
+        ConfigurationEvaluation result = await new ConfigurationEvaluator().EvaluateAsync(contract);
 
-        Assert.False(result.IsOperational);
+        Assert.False(result.IsComplete);
         Assert.Equal(ConfigurationState.Missing, result.Requirements.Single().State);
     }
 
     [Fact]
-    public async Task MissingOptionalValueIsNotRequired()
+    public async Task OptionalSettingReportedMissingDoesNotBlockCompleteness()
     {
         ApplicationConfigurationContract contract = new("app", "App", "1.0", [
-            new("url", "Optional URL", ConfigurationRequirementKind.Configuration, false, "Optional integration", "Service:Url", Validator: "uri")
+            new("url", "Optional URL", ConfigurationRequirementKind.Configuration, false, "Optional integration", ConfigurationKey: "Service:Url", IsConfigured: false)
         ]);
-        ConfigurationEvaluator evaluator = new(new EmptyResolver(), []);
 
-        ConfigurationEvaluation result = await evaluator.EvaluateAsync(contract);
+        ConfigurationEvaluation result = await new ConfigurationEvaluator().EvaluateAsync(contract);
 
-        Assert.True(result.IsOperational);
-        Assert.Equal(ConfigurationState.NotRequired, result.Requirements.Single().State);
+        Assert.True(result.IsComplete);
+        Assert.Equal(ConfigurationState.OptionalNotConfigured, result.Requirements.Single().State);
     }
 
     [Fact]
-    public async Task ConfiguredOptionalValueIsValidated()
+    public async Task ApplicationReportedConfiguredIsCompleteWithoutRuntimeProbe()
     {
         ApplicationConfigurationContract contract = new("app", "App", "1.0", [
-            new("url", "Optional URL", ConfigurationRequirementKind.Configuration, false, "Optional integration", "Service:Url", Validator: "uri")
+            new("url", "Service URL", ConfigurationRequirementKind.ExternalService, true, "Required service", ConfigurationKey: "Service:Url", IsConfigured: true, SafeDisplayValue: "https://example.invalid")
         ]);
-        ConfigurationEvaluator evaluator = new(new FixedResolver("not-a-uri"), [new RejectingValidator("uri")]);
 
-        ConfigurationEvaluation result = await evaluator.EvaluateAsync(contract);
+        ConfigurationEvaluation result = await new ConfigurationEvaluator().EvaluateAsync(contract);
 
-        Assert.False(result.IsOperational);
-        Assert.Equal(ConfigurationState.Invalid, result.Requirements.Single().State);
+        Assert.True(result.IsComplete);
+        RequirementEvaluation requirement = result.Requirements.Single();
+        Assert.Equal(ConfigurationState.Configured, requirement.State);
+        Assert.Equal("https://example.invalid", requirement.SafeDisplayValue);
     }
 
     [Fact]
-    public async Task PresentValueWithoutValidatorIsUnverified()
+    public async Task SensitiveValueIsNeverExposed()
     {
         ApplicationConfigurationContract contract = new("app", "App", "1.0", [
-            new("url", "Service URL", ConfigurationRequirementKind.Configuration, true, "Required service", "Service:Url")
+            new("secret", "OpenBao Credentials", ConfigurationRequirementKind.Secret, true, "OpenBao credentials are supplied.", SecretName: "openbao/bootstrap", IsConfigured: true, Sensitive: true)
         ]);
-        ConfigurationEvaluator evaluator = new(new FixedResolver("https://example.invalid"), []);
 
-        ConfigurationEvaluation result = await evaluator.EvaluateAsync(contract);
+        ConfigurationEvaluation result = await new ConfigurationEvaluator().EvaluateAsync(contract);
 
-        Assert.False(result.IsOperational);
-        Assert.Equal(ConfigurationState.ConfiguredUnverified, result.Requirements.Single().State);
-    }
-
-    [Fact]
-    public async Task DeclaredButUnavailableValidatorFailsClosed()
-    {
-        ApplicationConfigurationContract contract = new("app", "App", "1.0", [
-            new("url", "Service URL", ConfigurationRequirementKind.Configuration, true, "Required service", "Service:Url", Validator: "missing-validator")
-        ]);
-        ConfigurationEvaluator evaluator = new(new FixedResolver("https://example.invalid"), []);
-
-        ConfigurationEvaluation result = await evaluator.EvaluateAsync(contract);
-
-        Assert.False(result.IsOperational);
-        Assert.Equal(ConfigurationState.Invalid, result.Requirements.Single().State);
-    }
-
-    private sealed class EmptyResolver : IConfigurationValueResolver
-    {
-        public ValueTask<string?> ResolveAsync(ConfigurationRequirement requirement, CancellationToken cancellationToken = default) => ValueTask.FromResult<string?>(null);
-    }
-
-    private sealed class FixedResolver(string value) : IConfigurationValueResolver
-    {
-        public ValueTask<string?> ResolveAsync(ConfigurationRequirement requirement, CancellationToken cancellationToken = default) => ValueTask.FromResult<string?>(value);
-    }
-
-    private sealed class RejectingValidator(string validatorName) : IConfigurationRequirementValidator
-    {
-        public bool CanValidate(ConfigurationRequirement requirement) => string.Equals(requirement.Validator, validatorName, StringComparison.OrdinalIgnoreCase);
-
-        public ValueTask<(bool Success, string Message)> ValidateAsync(ConfigurationRequirement requirement, string value, CancellationToken cancellationToken = default)
-            => ValueTask.FromResult((false, "Rejected for test."));
+        Assert.True(result.IsComplete);
+        RequirementEvaluation requirement = result.Requirements.Single();
+        Assert.Null(requirement.SafeDisplayValue);
+        Assert.True(requirement.Sensitive);
     }
 }

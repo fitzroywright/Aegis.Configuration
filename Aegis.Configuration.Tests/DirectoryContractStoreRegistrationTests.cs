@@ -6,75 +6,67 @@ namespace Aegis.Configuration.Tests;
 public sealed class DirectoryContractStoreRegistrationTests
 {
     [Fact]
-    public async Task RegisterPersistsAndIsIdempotent()
+    public async Task RegisterPersistsAndRefreshesTimestampWithoutChangingSemanticHash()
     {
         string directory = Path.Combine(Path.GetTempPath(), $"aegis-configuration-{Guid.NewGuid():N}");
         try
         {
             DirectoryContractStore store = new(directory);
-            ApplicationConfigurationContract contract = CreateContract("Demo.App", "1.0.0", "Service:Url");
-
+            ApplicationConfigurationContract contract = CreateContract("Demo.App", "1.0.0", "Service:Url", true);
             var first = await store.RegisterAsync(contract);
+            await Task.Delay(5);
             var second = await store.RegisterAsync(contract);
             IReadOnlyList<ApplicationConfigurationContract> loaded = await store.LoadAllAsync();
-
             Assert.True(first.Changed);
             Assert.False(second.Changed);
             Assert.Equal(first.ContractHash, second.ContractHash);
-            Assert.Single(loaded);
-            Assert.Equal("Demo.App", loaded[0].ApplicationId);
-            Assert.Equal("1.0.0", loaded[0].Version);
+            Assert.True(second.LastRegisteredAtUtc > first.LastRegisteredAtUtc);
+            Assert.Equal(second.LastRegisteredAtUtc, loaded.Single().LastRegisteredAtUtc);
+            Assert.True(loaded[0].Requirements.Single().IsConfigured);
         }
-        finally
-        {
-            if (Directory.Exists(directory)) Directory.Delete(directory, true);
-        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
 
     [Fact]
-    public async Task RegisterReplacesChangedContractForSameApplication()
+    public async Task ClientCannotForgeRegistrationTimestamp()
     {
         string directory = Path.Combine(Path.GetTempPath(), $"aegis-configuration-{Guid.NewGuid():N}");
         try
         {
             DirectoryContractStore store = new(directory);
-            await store.RegisterAsync(CreateContract("Demo.App", "1.0.0", "Service:Url"));
-
-            var changed = await store.RegisterAsync(CreateContract("Demo.App", "2.0.0", "Service:Endpoint"));
-            IReadOnlyList<ApplicationConfigurationContract> loaded = await store.LoadAllAsync();
-
-            Assert.True(changed.Changed);
-            Assert.Single(loaded);
-            Assert.Equal("2.0.0", loaded[0].Version);
-            Assert.Equal("Service:Endpoint", loaded[0].Requirements.Single().ConfigurationKey);
+            DateTimeOffset forged = DateTimeOffset.UtcNow.AddYears(10);
+            ApplicationConfigurationContract contract = CreateContract("Demo.App", "1.0.0", "Service:Url", true) with { LastRegisteredAtUtc = forged };
+            var result = await store.RegisterAsync(contract);
+            Assert.NotEqual(forged, result.LastRegisteredAtUtc);
+            Assert.True(result.LastRegisteredAtUtc < forged);
         }
-        finally
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task RegisterReplacesChangedReportedState()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"aegis-configuration-{Guid.NewGuid():N}");
+        try
         {
-            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            DirectoryContractStore store = new(directory);
+            await store.RegisterAsync(CreateContract("Demo.App", "1.0.0", "Service:Url", false));
+            var changed = await store.RegisterAsync(CreateContract("Demo.App", "1.0.0", "Service:Url", true));
+            IReadOnlyList<ApplicationConfigurationContract> loaded = await store.LoadAllAsync();
+            Assert.True(changed.Changed);
+            Assert.True(loaded.Single().Requirements.Single().IsConfigured);
         }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
 
     [Fact]
     public async Task RegisterRejectsUnsafeApplicationId()
     {
         string directory = Path.Combine(Path.GetTempPath(), $"aegis-configuration-{Guid.NewGuid():N}");
-        try
-        {
-            DirectoryContractStore store = new(directory);
-            ApplicationConfigurationContract contract = CreateContract("../Other.App", "1.0.0", "Service:Url");
-
-            await Assert.ThrowsAsync<InvalidDataException>(async () => await store.RegisterAsync(contract));
-        }
-        finally
-        {
-            if (Directory.Exists(directory)) Directory.Delete(directory, true);
-        }
+        try { DirectoryContractStore store = new(directory); await Assert.ThrowsAsync<InvalidDataException>(async () => await store.RegisterAsync(CreateContract("../Other.App", "1.0.0", "Service:Url", true))); }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
 
-    private static ApplicationConfigurationContract CreateContract(string applicationId, string version, string configurationKey)
-        => new(
-            applicationId,
-            "Demo Application",
-            version,
-            [new ConfigurationRequirement("service-url", "Service URL", ConfigurationRequirementKind.Configuration, true, "Required endpoint.", configurationKey, Validator: "uri")]);
+    private static ApplicationConfigurationContract CreateContract(string applicationId, string version, string configurationKey, bool configured)
+        => new(applicationId, "Demo Application", version, [new ConfigurationRequirement("service-url", "Service URL", ConfigurationRequirementKind.ExternalService, true, "Required endpoint.", ConfigurationKey: configurationKey, IsConfigured: configured, SafeDisplayValue: configured ? "https://example.invalid" : null)]);
 }

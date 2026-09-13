@@ -15,12 +15,8 @@ jobs:
           path: Aegis.Configuration
       - uses: actions/checkout@v4
         with:
-          repository: fitzroywright/Common.Diagnostics
-          path: Common.Diagnostics
-      - uses: actions/checkout@v4
-        with:
           repository: fitzroywright/Common.Secrets
-          path: Common.Secrets
+          path: Common/Common.Secrets
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
