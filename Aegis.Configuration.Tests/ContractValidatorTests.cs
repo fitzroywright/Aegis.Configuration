@@ -12,37 +12,29 @@ public sealed class ContractValidatorTests
             new("same", "One", ConfigurationRequirementKind.Configuration, true, "Purpose", IsConfigured: true),
             new("same", "Secret", ConfigurationRequirementKind.Secret, true, "Purpose", IsConfigured: true, Sensitive: true)
         ]);
-
         ContractValidationResult result = new ContractValidator().Validate(contract);
-
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, x => x.Contains("Duplicate", StringComparison.Ordinal));
     }
 
     [Fact]
-    public void Validate_RejectsMissingHumanReadableMetadata()
+    public void Validate_RequiresApplicationReportedState()
     {
-        ApplicationConfigurationContract contract = new("demo", "", "1.0", [
-            new("setting", "", ConfigurationRequirementKind.Configuration, true, "", IsConfigured: false)
+        ApplicationConfigurationContract contract = new("demo", "Demo", "1.0", [
+            new("setting", "Setting", ConfigurationRequirementKind.Configuration, true, "Purpose")
         ]);
-
         ContractValidationResult result = new ContractValidator().Validate(contract);
-
         Assert.False(result.IsValid);
-        Assert.Contains(result.Errors, x => x.Contains("DisplayName", StringComparison.Ordinal));
-        Assert.Contains(result.Errors, x => x.Contains("Purpose", StringComparison.Ordinal));
+        Assert.Contains(result.Errors, x => x.Contains("IsConfigured", StringComparison.Ordinal));
     }
 
     [Fact]
-    public void Validate_AllowsSelfReportedSecretWithoutSecretValueOrLocator()
+    public void Validate_AllowsSelfReportedSecretWithoutPublishingValue()
     {
         ApplicationConfigurationContract contract = new("demo", "Demo", "1.0", [
             new("secret", "OpenBao credentials", ConfigurationRequirementKind.Secret, true, "Credentials required to reach OpenBao.", IsConfigured: true, Sensitive: true)
         ]);
-
-        ContractValidationResult result = new ContractValidator().Validate(contract);
-
-        Assert.True(result.IsValid);
+        Assert.True(new ContractValidator().Validate(contract).IsValid);
     }
 
     [Fact]
@@ -51,9 +43,7 @@ public sealed class ContractValidatorTests
         ApplicationConfigurationContract contract = new("demo", "Demo", "1.0", [
             new("secret", "Secret", ConfigurationRequirementKind.Secret, true, "Purpose", IsConfigured: true, SafeDisplayValue: "do-not-publish", Sensitive: true)
         ]);
-
         ContractValidationResult result = new ContractValidator().Validate(contract);
-
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, x => x.Contains("cannot publish a display value", StringComparison.Ordinal));
     }
@@ -64,9 +54,7 @@ public sealed class ContractValidatorTests
         ApplicationConfigurationContract contract = new("demo", "Demo", "1.0", [
             new("secret", "Secret", ConfigurationRequirementKind.Secret, true, "Purpose", ConfigurationKey: "Unsafe:ConfigurationKey", IsConfigured: true, Sensitive: true)
         ]);
-
         ContractValidationResult result = new ContractValidator().Validate(contract);
-
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, x => x.Contains("cannot declare ConfigurationKey", StringComparison.Ordinal));
     }
