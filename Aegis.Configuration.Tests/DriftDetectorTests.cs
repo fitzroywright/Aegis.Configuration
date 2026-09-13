@@ -6,7 +6,7 @@ namespace Aegis.Configuration.Tests;
 public sealed class DriftDetectorTests
 {
     [Fact]
-    public void Compare_FlagsVerifiedToMissingAsCritical()
+    public void Compare_FlagsConfiguredToMissingAsCritical()
     {
         CommissioningHistoryEntry previous = new(
             Guid.NewGuid(),
@@ -14,7 +14,7 @@ public sealed class DriftDetectorTests
             "app",
             "1",
             true,
-            [new("db", "Database", true, ConfigurationState.Verified, "OK")]);
+            [new("db", "Database", true, ConfigurationState.Configured, "Configured")]);
 
         CommissioningSnapshot current = new(
             "app",
