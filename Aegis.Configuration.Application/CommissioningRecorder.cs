@@ -6,7 +6,7 @@ public sealed class CommissioningRecorder(ICommissioningHistoryStore historyStor
 {
     public async ValueTask<CommissioningHistoryEntry> RecordAsync(CommissioningSnapshot snapshot, CancellationToken cancellationToken = default)
     {
-        CommissioningHistoryEntry entry = new(Guid.NewGuid(), DateTimeOffset.UtcNow, snapshot.ApplicationId, snapshot.ApplicationVersion, snapshot.Evaluation.IsOperational, snapshot.Evaluation.Requirements);
+        CommissioningHistoryEntry entry = new(Guid.NewGuid(), DateTimeOffset.UtcNow, snapshot.ApplicationId, snapshot.ApplicationVersion, snapshot.Evaluation.IsComplete, snapshot.Evaluation.Requirements);
         await historyStore.AppendAsync(entry, cancellationToken);
         return entry;
     }
