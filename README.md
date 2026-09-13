@@ -1,45 +1,62 @@
 # Aegis.Configuration
 
-Aegis.Configuration is the commissioning and configuration control plane for Aegis applications.
+Aegis.Configuration is the configuration registry and administrator runbook service for Aegis applications.
 
-Applications declare what they require. Aegis.Configuration receives those contracts, evaluates configuration state, guides administrators through commissioning, and delegates secret storage and operational proof to the appropriate Common services.
+Its job is deliberately narrow: **tell an administrator what an application requires, which settings are required or optional, and whether those settings have been supplied.** It does not decide whether the resulting system is operational.
 
 ## Core principles
 
-- Applications are the authority for their configuration requirements.
-- Applications publish their configuration contract to Aegis.Configuration on startup when a Configuration service URL is configured.
-- Contract publication is best-effort: Aegis.Configuration is never a runtime dependency of the application.
-- Missing configuration is a commissioning state, not an obscure startup failure.
-- Configuration and secrets are distinct.
-- Secret values are never written into commissioning reports.
-- Common.Secrets owns secret-provider access.
-- Common.Diagnostics provides bounded operational verification.
-- Setup instructions are versioned independently from application binaries.
-- A baseline instruction pack is available offline.
-- Configuration status is explicit: NotRequired, Missing, Invalid, ConfiguredUnverified, Verified.
+- The application is the authority for its own configuration requirements.
+- Each independently running application/component publishes its contract to Aegis.Configuration at startup.
+- Publication is best-effort. Aegis.Configuration must never become a runtime dependency of the application.
+- Every requirement declares whether it is **Required** or **Optional**.
+- The application may publish a safe display value when appropriate and `IsConfigured` to report presence without exposing the value.
+- Sensitive values are never accepted as display values and are never printed in runbooks.
+- Aegis.Configuration may identify that OpenBao credentials or another secret are required, but it does not retrieve, display, test, or store the application's secret value.
+- Required settings determine configuration completeness. Missing optional settings do not make configuration incomplete.
+- Runtime reachability, authentication success, database availability, network connectivity, service health, logs, and operational telemetry are outside Aegis.Configuration.
+- Runbooks are generated from the same contract the application publishes, reducing drift between documentation and the actual software.
+- Site and instance identity may be published with the application contract so an administrator knows which installation is being viewed.
 
 ## Contract self-registration
 
-Applications own their JSON configuration contract and package it with the deployable server host. At startup the host may publish that contract to:
+Applications publish to:
 
 `POST /api/contracts/register`
 
-The request uses `X-Configuration-Registration-Key`. Aegis.Configuration validates the contract and authenticates it against the per-application secret:
+The request uses `X-Configuration-Registration-Key`. Registration is authenticated against the per-application registration secret:
 
 `configuration/registration/<ApplicationId>`
 
-A publisher can only authenticate as the ApplicationId whose secret it possesses. Registration is idempotent: unchanged contracts return the same SHA-256 contract hash without rewriting the stored contract; changed contracts atomically replace the current contract file.
+This registration credential protects the Configuration service itself; it is not an application runtime secret and is never included in a runbook.
 
-The service still reads its configured contract directory, so file deployment remains a bootstrap/fallback option. Self-registration removes the need for routine manual copying.
+Registration is idempotent. Unchanged contracts return the same SHA-256 contract hash; changed contracts atomically replace the registered contract.
 
-A publishing failure must never prevent the application from starting or continuing to run. Applications use their own runtime configuration and Common.Secrets independently of Aegis.Configuration.
+The repository no longer ships fake/pre-populated application contracts. An empty Configuration installation correctly displays **NO APPLICATIONS REGISTERED** until applications publish themselves.
 
-## Initial solution
+## Administrator workflow
 
-- `Aegis.Configuration.Domain` - configuration contracts and state model.
-- `Aegis.Configuration.Application` - discovery, evaluation, validation and commissioning orchestration.
-- `Aegis.Configuration.Infrastructure` - contract/instruction persistence and provider adapters.
-- `Aegis.Configuration.Web` - administrator commissioning UI and API.
-- `Aegis.Configuration.Tests` - contract and commissioning tests.
+1. Install/copy an Aegis application.
+2. Start it.
+3. The application publishes its configuration contract when Aegis.Configuration is available.
+4. Open Aegis.Configuration and select the application/instance.
+5. Review required and optional settings and identify missing required values.
+6. Supply the missing configuration using the application's deployment instructions.
+7. Restart/reload the application when required.
+8. Confirm Configuration reports all required settings supplied.
+9. Open the generated Configuration Runbook for installation/configuration guidance and sign-off.
+10. Use the separate operational diagnostics system to determine whether the configured application and its dependencies actually work.
 
-The current vertical slice uses JSON application contracts. Applications can publish those same contracts directly to the service while retaining JSON as the source-of-truth artifact. A future shared package can expose the same domain contract directly from application code if that proves useful.
+## UI standard
+
+The administrator UI uses **Compact LCARS**: LCARS visual language with information-dense tables, thinner chrome, responsive tablet/phone layouts, and generous touch targets. LCARS curved elements retain their Back-navigation behavior.
+
+The UI is observational. It does not expose service restart or infrastructure-control actions.
+
+## Solution
+
+- `Aegis.Configuration.Domain` - published configuration contracts and configuration state.
+- `Aegis.Configuration.Application` - completeness evaluation, runbook generation, history and configuration-change logic.
+- `Aegis.Configuration.Infrastructure` - contract/instruction persistence and Configuration's own provider adapters.
+- `Aegis.Configuration.Web` - Compact LCARS administrator UI and registration/report API.
+- `Aegis.Configuration.Tests` - contract, completeness and runbook tests.
