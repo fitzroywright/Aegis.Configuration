@@ -22,12 +22,11 @@ public sealed class ContractValidator
             else if (!ids.Add(requirement.Id)) errors.Add($"Duplicate requirement Id '{requirement.Id}'.");
             if (string.IsNullOrWhiteSpace(requirement.DisplayName)) errors.Add($"Requirement '{requirementName}' must declare DisplayName.");
             if (string.IsNullOrWhiteSpace(requirement.Purpose)) errors.Add($"Requirement '{requirementName}' must declare Purpose.");
+            if (!requirement.IsConfigured.HasValue) errors.Add($"Requirement '{requirementName}' must publish IsConfigured.");
 
             if (requirement.Sensitive && !string.IsNullOrWhiteSpace(requirement.SafeDisplayValue))
                 errors.Add($"Sensitive requirement '{requirementName}' cannot publish a display value.");
 
-            // New self-reporting contracts need no ConfigurationKey/SecretName. Existing
-            // contracts may continue to use them during migration.
             if (requirement.Kind == ConfigurationRequirementKind.Secret && !string.IsNullOrWhiteSpace(requirement.ConfigurationKey))
                 errors.Add($"Secret requirement '{requirementName}' cannot declare ConfigurationKey.");
         }
