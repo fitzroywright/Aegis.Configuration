@@ -12,13 +12,14 @@ public sealed class ConfigurationReadinessScorerTests
             "app",
             "1",
             [
-                new("a", "A", true, ConfigurationState.Verified, "OK"),
+                new("a", "A", true, ConfigurationState.Configured, "Configured"),
                 new("b", "B", true, ConfigurationState.Missing, "Missing")
             ]);
 
         ConfigurationReadinessScore score = new ConfigurationReadinessScorer().Calculate(evaluation);
 
         Assert.Equal(50, score.Score);
+        Assert.Equal(1, score.Configured);
         Assert.Equal("Orange", score.Grade);
     }
 }
