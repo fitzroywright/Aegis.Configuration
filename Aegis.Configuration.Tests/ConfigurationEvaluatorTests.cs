@@ -12,7 +12,7 @@ public sealed class ConfigurationEvaluatorTests
             new("db", "Database", ConfigurationRequirementKind.Configuration, true, "Required database", ConfigurationKey: "ConnectionStrings:App", IsConfigured: false)
         ]);
 
-        ConfigurationEvaluation result = await new ConfigurationEvaluator().EvaluateAsync(contract);
+        ConfigurationEvaluation result = await new ConfigurationEvaluator().EvaluateAsync(contract, TestContext.Current.CancellationToken);
 
         Assert.False(result.IsComplete);
         Assert.Equal(ConfigurationState.Missing, result.Requirements.Single().State);
@@ -25,7 +25,7 @@ public sealed class ConfigurationEvaluatorTests
             new("url", "Optional URL", ConfigurationRequirementKind.Configuration, false, "Optional integration", ConfigurationKey: "Service:Url", IsConfigured: false)
         ]);
 
-        ConfigurationEvaluation result = await new ConfigurationEvaluator().EvaluateAsync(contract);
+        ConfigurationEvaluation result = await new ConfigurationEvaluator().EvaluateAsync(contract, TestContext.Current.CancellationToken);
 
         Assert.True(result.IsComplete);
         Assert.Equal(ConfigurationState.OptionalNotConfigured, result.Requirements.Single().State);
@@ -38,7 +38,7 @@ public sealed class ConfigurationEvaluatorTests
             new("url", "Service URL", ConfigurationRequirementKind.ExternalService, true, "Required service", ConfigurationKey: "Service:Url", IsConfigured: true, SafeDisplayValue: "https://example.invalid")
         ]);
 
-        ConfigurationEvaluation result = await new ConfigurationEvaluator().EvaluateAsync(contract);
+        ConfigurationEvaluation result = await new ConfigurationEvaluator().EvaluateAsync(contract, TestContext.Current.CancellationToken);
 
         Assert.True(result.IsComplete);
         RequirementEvaluation requirement = result.Requirements.Single();
@@ -53,7 +53,7 @@ public sealed class ConfigurationEvaluatorTests
             new("secret", "OpenBao Credentials", ConfigurationRequirementKind.Secret, true, "OpenBao credentials are supplied.", SecretName: "openbao/bootstrap", IsConfigured: true, Sensitive: true)
         ]);
 
-        ConfigurationEvaluation result = await new ConfigurationEvaluator().EvaluateAsync(contract);
+        ConfigurationEvaluation result = await new ConfigurationEvaluator().EvaluateAsync(contract, TestContext.Current.CancellationToken);
 
         Assert.True(result.IsComplete);
         RequirementEvaluation requirement = result.Requirements.Single();
