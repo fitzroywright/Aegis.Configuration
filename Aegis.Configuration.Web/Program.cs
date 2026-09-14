@@ -60,15 +60,16 @@ app.MapGet("/runbooks/{applicationId}", async (string applicationId, IConfigurat
 
 app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationConfigurationContract contract, IConfigurationContractRegistrationStore store, ContractValidator validator, IConfiguration configuration, CancellationToken ct) =>
 {
-    if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+    string? configuredKey = configuration["AegisConfiguration:RegistrationKey"];
+    if (string.IsNullOrWhiteSpace(configuredKey))
+        return Results.Problem("Application registration is disabled because no registration credential is configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
+
+    string supplied = context.Request.Headers["X-Aegis-Registration-Key"].ToString();
+    if (!FixedEquals(configuredKey, supplied)) return Results.Unauthorized();
+
     var validation = validator.Validate(contract);
     if (!validation.IsValid) return Results.BadRequest(validation);
-    string? configuredKey = configuration["AegisConfiguration:RegistrationKey"];
-    if (!string.IsNullOrWhiteSpace(configuredKey))
-    {
-        string supplied = context.Request.Headers["X-Aegis-Registration-Key"].ToString();
-        if (!FixedEquals(configuredKey, supplied)) return Results.Unauthorized();
-    }
+
     ConfigurationContractRegistrationResult registration = await store.RegisterAsync(contract, ct);
     return Results.Ok(new { registered = true, registration.ApplicationId, registration.Version, registration.Changed, registration.LastRegisteredAtUtc });
 });
