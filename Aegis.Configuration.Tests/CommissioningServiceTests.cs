@@ -13,7 +13,7 @@ public sealed class CommissioningServiceTests
         ]);
         CommissioningService service = new(new FakeStore(contract), new ConfigurationEvaluator());
 
-        IReadOnlyList<CommissioningSnapshot> result = await service.EvaluateAllAsync();
+        IReadOnlyList<CommissioningSnapshot> result = await service.EvaluateAllAsync(TestContext.Current.CancellationToken);
 
         Assert.Single(result);
         Assert.True(result[0].Evaluation.IsComplete);
