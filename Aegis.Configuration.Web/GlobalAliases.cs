@@ -1,0 +1,1 @@
+global using ConfigurationRequirementEvaluation = Aegis.Configuration.Domain.RequirementEvaluation;
