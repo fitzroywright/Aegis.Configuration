@@ -35,7 +35,15 @@ public sealed class ConfigurationEvaluator
                 requirement.Purpose,
                 requirement.Sensitive ? null : requirement.SafeDisplayValue,
                 requirement.Example,
-                requirement.Sensitive);
+                requirement.Sensitive,
+                requirement.ConditionalOn,
+                requirement.AllowedSources,
+                requirement.ResolutionOrder,
+                requirement.EffectiveSource,
+                requirement.HasDefault,
+                requirement.Sensitive ? null : requirement.DefaultValue,
+                requirement.SecretPath,
+                requirement.Redacted || requirement.Sensitive);
         }).ToArray();
 
         return ValueTask.FromResult(new ConfigurationEvaluation(contract.ApplicationId, contract.Version, results));
