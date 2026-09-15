@@ -29,6 +29,46 @@ public sealed class DirectoryContractStoreRegistrationTests
     }
 
     [Fact]
+    public async Task RuntimeEnvironmentIsPersistedButDoesNotChangeSemanticHash()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"aegis-configuration-{Guid.NewGuid():N}");
+        try
+        {
+            CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+            DirectoryContractStore store = new(directory);
+            ApplicationConfigurationContract firstContract = CreateContract("Demo.App", "1.0.0", "Service:Url", true) with
+            {
+                RuntimeEnvironment = new RuntimeEnvironmentSnapshot(
+                    MachineName: "host-a",
+                    HostingEnvironment: "Production",
+                    OperatingSystem: "Test OS",
+                    ProcessorCount: 4,
+                    RuntimeAvailableMemoryBytes: 8_000_000,
+                    Storage: [new RuntimeStorageVolume("/", "Fixed", "testfs", 100_000_000, 60_000_000)])
+            };
+            ApplicationConfigurationContract secondContract = firstContract with
+            {
+                RuntimeEnvironment = firstContract.RuntimeEnvironment! with
+                {
+                    RuntimeAvailableMemoryBytes = 7_000_000,
+                    Storage = [new RuntimeStorageVolume("/", "Fixed", "testfs", 100_000_000, 55_000_000)]
+                }
+            };
+
+            ConfigurationContractRegistrationResult first = await store.RegisterAsync(firstContract, cancellationToken);
+            ConfigurationContractRegistrationResult second = await store.RegisterAsync(secondContract, cancellationToken);
+            ApplicationConfigurationContract loaded = Assert.Single(await store.LoadAllAsync(cancellationToken));
+
+            Assert.True(first.Changed);
+            Assert.False(second.Changed);
+            Assert.Equal(first.ContractHash, second.ContractHash);
+            Assert.Equal(7_000_000, loaded.RuntimeEnvironment?.RuntimeAvailableMemoryBytes);
+            Assert.Equal(55_000_000, loaded.RuntimeEnvironment?.Storage?.Single().AvailableBytes);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task ClientCannotForgeRegistrationTimestamp()
     {
         string directory = Path.Combine(Path.GetTempPath(), $"aegis-configuration-{Guid.NewGuid():N}");
