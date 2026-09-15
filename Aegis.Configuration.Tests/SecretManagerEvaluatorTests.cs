@@ -19,6 +19,8 @@ public sealed class SecretManagerEvaluatorTests
         Assert.True(result.IsHealthy);
         Assert.Equal(0, result.IssueCount);
         Assert.True(result.CanTestConnection);
+        Assert.True(result.HasCredentialStatus);
+        Assert.True(result.CredentialsVerified);
     }
 
     [Fact]
@@ -61,6 +63,35 @@ public sealed class SecretManagerEvaluatorTests
         Assert.Equal(SecretProviderKind.None, result.Provider);
         Assert.False(result.HasSecrets);
         Assert.Equal(0, result.IssueCount);
+    }
+
+    [Fact]
+    public void Rejects_non_http_provider_console_urls()
+    {
+        var contract = Contract(
+            new SecretProviderDeclaration("OpenBao", "javascript:alert(1)", "Healthy", "Valid"),
+            new ConfigurationRequirement("db", "Database", ConfigurationRequirementKind.Secret, true, "Database credential", IsConfigured: true, EffectiveSource: "OpenBao"));
+        var evaluation = Evaluation(new RequirementEvaluation("db", "Database", true, ConfigurationState.Configured, "Configured.", EffectiveSource: "OpenBao"));
+
+        SecretManagerStatus result = SecretManagerEvaluator.Evaluate(contract, evaluation);
+
+        Assert.False(result.CanOpenProviderConsole);
+        Assert.False(result.CanTestConnection);
+    }
+
+    [Fact]
+    public void Reports_unverified_published_credential_state_as_issue()
+    {
+        var contract = Contract(
+            new SecretProviderDeclaration("OpenBao", "https://openbao.example:8200", "Healthy", "Invalid"),
+            new ConfigurationRequirement("db", "Database", ConfigurationRequirementKind.Secret, true, "Database credential", IsConfigured: true, EffectiveSource: "OpenBao"));
+        var evaluation = Evaluation(new RequirementEvaluation("db", "Database", true, ConfigurationState.Configured, "Configured.", EffectiveSource: "OpenBao"));
+
+        SecretManagerStatus result = SecretManagerEvaluator.Evaluate(contract, evaluation);
+
+        Assert.True(result.HasCredentialStatus);
+        Assert.False(result.CredentialsVerified);
+        Assert.Contains(result.Issues, x => x.Code == "provider-credentials");
     }
 
     private static ApplicationConfigurationContract Contract(SecretProviderDeclaration? secrets, params ConfigurationRequirement[] requirements)
