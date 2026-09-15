@@ -47,7 +47,9 @@ public sealed record DiagnosticsCapability(
     string HealthPath = "/health",
     string DiagnosticsRunPath = "/api/engineering/diagnostics/run",
     string DiagnosticsRunsPath = "/api/engineering/diagnostics/runs",
+    string TelemetryPath = "/api/engineering/diagnostics/telemetry",
     bool SupportsRemoteDiagnostics = true,
+    bool SupportsOperationalTelemetry = true,
     string AuthenticationScheme = "MachineCredential",
     string SecretName = "",
     IReadOnlyList<int>? SupportedLevels = null);
