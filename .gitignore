@@ -1,0 +1,10 @@
+# Build output
+**/bin/
+**/obj/
+
+# Visual Studio local state
+.vs/
+
+# Aegis.Configuration runtime-generated state
+Aegis.Configuration.Web/contracts/*.configuration-contract.json
+Aegis.Configuration.Web/data/commissioning-history.jsonl
