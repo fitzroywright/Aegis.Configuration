@@ -74,6 +74,20 @@ app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationCo
     return Results.Ok(new { registered = true, registration.ApplicationId, registration.Version, registration.Changed, registration.LastRegisteredAtUtc });
 });
 
+app.MapGet("/api/contracts/discovery", async (HttpContext context, IConfigurationContractStore store, IConfiguration configuration, CancellationToken ct) =>
+{
+    string? configuredKey = configuration["AegisConfiguration:RegistrationKey"];
+    if (string.IsNullOrWhiteSpace(configuredKey))
+        return Results.Problem("Application discovery is disabled because no registration credential is configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
+
+    string supplied = context.Request.Headers["X-Aegis-Registration-Key"].ToString();
+    if (!FixedEquals(configuredKey, supplied)) return Results.Unauthorized();
+
+    IReadOnlyList<ApplicationConfigurationContract> contracts = await store.LoadAllAsync(ct);
+    context.Response.Headers.CacheControl = "no-store";
+    return Results.Ok(contracts);
+});
+
 app.MapGet("/api/contracts", async (IConfigurationContractStore store, CancellationToken ct) => Results.Ok(await store.LoadAllAsync(ct)));
 
 app.MapGet("/api/report/{applicationId}", async (string applicationId, IConfigurationContractStore store, ConfigurationEvaluator evaluator, CommissioningReportRenderer renderer, CancellationToken ct) =>
@@ -129,26 +143,16 @@ static string RenderRuntimeEnvironment(RuntimeEnvironmentSnapshot? environment)
     if (environment is null) return "<h3>Detected Runtime Environment</h3><div class='empty'>No runtime environment snapshot has been published.</div>";
 
     string interfaces = environment.NetworkInterfaces is not { Count: > 0 }
-        ? "<div class='empty'>No active non-loopback interfaces reported.</div>"
+        ? "<div class='empty'>No non-loopback interfaces reported.</div>"
         : string.Join("", environment.NetworkInterfaces.Select(item =>
             $"<div class='req'><span><b>{E(item.Name)}</b><small>{E(item.Type)} · Gateways: {E(item.Gateways is { Count: > 0 } ? string.Join(", ", item.Gateways) : null)}</small></span><code>{E(item.Addresses is { Count: > 0 } ? string.Join(", ", item.Addresses) : null)}</code><i class='ok'>N</i></div>"));
 
     string storage = environment.Storage is not { Count: > 0 }
-        ? "<div class='empty'>No storage volumes reported.</div>"
+        ? "<div class='empty'>No storage identity reported.</div>"
         : string.Join("", environment.Storage.Select(volume =>
-            $"<div class='req'><span><b>{E(volume.Name)}</b><small>{E(volume.DriveType)} · {E(volume.Format)}</small></span><code>{Bytes(volume.AvailableBytes)} free / {Bytes(volume.TotalBytes)}</code><i class='ok'>D</i></div>"));
+            $"<div class='req'><span><b>{E(volume.Name)}</b><small>{E(volume.DriveType)} · {E(volume.Format)}</small></span><code>Deployment identity</code><i class='ok'>D</i></div>"));
 
-    return $"<h3>Detected Runtime Environment</h3><div class='facts'><div><small>MACHINE / HOST</small><b>{E(environment.MachineName)} / {E(environment.HostName)}</b></div><div><small>HOSTING ENVIRONMENT</small><b>{E(environment.HostingEnvironment)}</b></div><div><small>OPERATING SYSTEM</small><b>{E(environment.OperatingSystem)}</b></div><div><small>ARCHITECTURE</small><b>{E(environment.OsArchitecture)} / {E(environment.ProcessArchitecture)}</b></div><div><small>.NET</small><b>{E(environment.FrameworkDescription)}</b></div><div><small>PROCESSORS</small><b>{environment.ProcessorCount?.ToString() ?? "—"}</b></div><div><small>RUNTIME AVAILABLE MEMORY</small><b>{Bytes(environment.RuntimeAvailableMemoryBytes)}</b></div><div><small>DNS DOMAIN</small><b>{E(environment.DnsDomainName)}</b></div></div><h3>Detected Network Interfaces</h3><div class='reqs'>{interfaces}</div><h3>Detected Storage</h3><div class='reqs'>{storage}</div>";
-}
-
-static string Bytes(long? value)
-{
-    if (!value.HasValue || value.Value < 0) return "—";
-    double bytes = value.Value;
-    string[] units = ["B", "KB", "MB", "GB", "TB"];
-    int unit = 0;
-    while (bytes >= 1024 && unit < units.Length - 1) { bytes /= 1024; unit++; }
-    return $"{bytes:0.##} {units[unit]}";
+    return $"<h3>Detected Runtime Environment</h3><div class='facts'><div><small>MACHINE / HOST</small><b>{E(environment.MachineName)} / {E(environment.HostName)}</b></div><div><small>HOSTING ENVIRONMENT</small><b>{E(environment.HostingEnvironment)}</b></div><div><small>OPERATING SYSTEM</small><b>{E(environment.OperatingSystem)}</b></div><div><small>ARCHITECTURE</small><b>{E(environment.OsArchitecture)} / {E(environment.ProcessArchitecture)}</b></div><div><small>.NET</small><b>{E(environment.FrameworkDescription)}</b></div><div><small>PROCESSORS</small><b>{environment.ProcessorCount?.ToString() ?? "—"}</b></div><div><small>DNS DOMAIN</small><b>{E(environment.DnsDomainName)}</b></div></div><h3>Detected Network Identity</h3><div class='reqs'>{interfaces}</div><h3>Detected Storage Identity</h3><div class='reqs'>{storage}</div>";
 }
 
 static string RenderRequirement(RequirementEvaluation r)
