@@ -44,7 +44,7 @@ public sealed class DirectoryContractStoreRegistrationTests
                     HostingEnvironment: "Production",
                     OperatingSystem: "Test OS",
                     ProcessorCount: 4,
-                    Storage: [new RuntimeStorageVolume("/", "Fixed", "testfs")])
+                    Storage: [new RuntimeStorageVolume("root", "Fixed", "testfs")])
             };
             ApplicationConfigurationContract secondContract = firstContract with
             {
@@ -52,7 +52,7 @@ public sealed class DirectoryContractStoreRegistrationTests
                 {
                     MachineName = "host-b",
                     HostName = "host-b.fftpj.local",
-                    Storage = [new RuntimeStorageVolume("D:", "Fixed", "testfs")]
+                    Storage = [new RuntimeStorageVolume("data", "Fixed", "testfs")]
                 }
             };
 
@@ -65,7 +65,7 @@ public sealed class DirectoryContractStoreRegistrationTests
             Assert.Equal(first.ContractHash, second.ContractHash);
             Assert.Equal("host-b", loaded.RuntimeEnvironment?.MachineName);
             Assert.Equal("host-b.fftpj.local", loaded.RuntimeEnvironment?.HostName);
-            Assert.Equal("D:", loaded.RuntimeEnvironment?.Storage?.Single().Name);
+            Assert.Equal("data", loaded.RuntimeEnvironment?.Storage?.Single().Name);
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
