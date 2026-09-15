@@ -12,8 +12,10 @@ public sealed record ApplicationConfigurationContract(
     string? InstanceId = null,
     string? Description = null,
     DateTimeOffset? LastRegisteredAtUtc = null,
-    RuntimeEnvironmentSnapshot? RuntimeEnvironment = null);
+    RuntimeEnvironmentSnapshot? RuntimeEnvironment = null,
+    DiagnosticsCapability? Diagnostics = null);
 
+/// <summary>Deployment identity only. Live health and capacity telemetry belongs to Aegis.Diagnostics.</summary>
 public sealed record RuntimeEnvironmentSnapshot(
     string? MachineName = null,
     string? HostName = null,
@@ -24,7 +26,6 @@ public sealed record RuntimeEnvironmentSnapshot(
     string? ProcessArchitecture = null,
     string? FrameworkDescription = null,
     int? ProcessorCount = null,
-    long? RuntimeAvailableMemoryBytes = null,
     string? ContentRootPath = null,
     IReadOnlyList<RuntimeNetworkInterface>? NetworkInterfaces = null,
     IReadOnlyList<RuntimeStorageVolume>? Storage = null);
@@ -38,9 +39,18 @@ public sealed record RuntimeNetworkInterface(
 public sealed record RuntimeStorageVolume(
     string? Name = null,
     string? DriveType = null,
-    string? Format = null,
-    long? TotalBytes = null,
-    long? AvailableBytes = null);
+    string? Format = null);
+
+/// <summary>Describes diagnostic capability only; it never carries health state or credential values.</summary>
+public sealed record DiagnosticsCapability(
+    string? BaseUrlConfigurationKey = null,
+    string HealthPath = "/health",
+    string DiagnosticsRunPath = "/api/engineering/diagnostics/run",
+    string DiagnosticsRunsPath = "/api/engineering/diagnostics/runs",
+    bool SupportsRemoteDiagnostics = true,
+    string AuthenticationScheme = "MachineCredential",
+    string SecretName = "",
+    IReadOnlyList<int>? SupportedLevels = null);
 
 public sealed record ConfigurationRequirement(
     string Id,
