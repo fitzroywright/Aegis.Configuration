@@ -16,13 +16,20 @@ internal static class SecretManagerPresentation
 
         string console = status.CanOpenProviderConsole
             ? $"<a class='primary' href='{E(status.ManagementUrl)}' target='_blank' rel='noopener'>Open Provider Console</a>"
-            : "<span class='disabled-action'>Provider console URL not declared</span>";
+            : "<span class='disabled-action'>Provider console URL not declared or not HTTP(S)</span>";
         string test = status.CanTestConnection
             ? $"<a href='/applications/{appId}/secrets/test'>Test Connection</a>"
             : "<span class='disabled-action'>Connection test unavailable for this declaration</span>";
+        string credentialAction = status.HasCredentialStatus
+            ? "<a href='#credentials'>Validate Credentials</a>"
+            : "<span class='disabled-action'>Credential validation not published by application</span>";
         string result = string.IsNullOrWhiteSpace(testMessage)
             ? string.Empty
             : $"<div class='probe-result {(testSucceeded == true ? "good" : "warn")}'><b>{(testSucceeded == true ? "Connection test succeeded" : "Connection test failed")}</b><span>{E(testMessage)}</span></div>";
+        string credentialClass = status.CredentialsVerified ? "good" : "warn";
+        string credentialSummary = status.HasCredentialStatus
+            ? $"<div class='probe-result {credentialClass}'><b>{(status.CredentialsVerified ? "Published credential validation is healthy" : "Published credential validation reports an issue")}</b><span>{E(status.CredentialStatus)}</span><small>This status comes from the application's own configuration contract. Configuration does not retrieve or display the credential value.</small></div>"
+            : "<div class='empty'>The application has not published a credential verification status, so Configuration cannot truthfully claim the credentials are valid.</div>";
 
         string content = $"""
 <style>{Css}</style>
@@ -30,10 +37,11 @@ internal static class SecretManagerPresentation
 <section class='panel secret-summary'>
   <div class='detail-head'><span class='bigicon'>{E(status.Glyph)}</span><div><h2>{E(status.ProviderName)}</h2><small>Declared or inferred secret provider for {E(contract.ApplicationId)}</small></div><span class='status {E(status.CssClass)}'>{E(status.IssueLabel)}</span></div>
   <div class='facts'><div><small>PROVIDER</small><b>{E(status.ProviderName)}</b></div><div><small>CONNECTION</small><b>{E(status.ConnectionStatus)}</b></div><div><small>CREDENTIALS</small><b>{E(status.CredentialStatus)}</b></div><div><small>REQUIRED SECRETS</small><b>{status.SecretRequirements.Count(x => x.Required)}</b></div></div>
-  <div class='secret-actions'><a href='/applications/{appId}'>Back to Configuration</a>{test}{console}</div>
+  <div class='secret-actions'><a href='/applications/{appId}'>Back to Configuration</a>{test}{credentialAction}{console}</div>
   {result}
 </section>
 <section class='panel secret-panel'><h2>Configure</h2><p>Configuration may guide and validate the provider declared by the application. It does not change the selected provider and does not become a secret store.</p><div class='provider-guidance'>{ProviderGuidance(status.Provider)}</div></section>
+<section id='credentials' class='panel secret-panel'><h2>Credential Validation</h2>{credentialSummary}</section>
 <section id='issues' class='panel secret-panel'><h2>Issues</h2>{issues}</section>
 <section class='panel secret-panel'><h2>Declared Secret Requirements</h2>{requirements}</section>
 """;
@@ -54,6 +62,6 @@ internal static class SecretManagerPresentation
     private static string E(string? value) => HtmlEncoder.Default.Encode(value ?? "—");
 
     private const string Css = """
-.secret-summary,.secret-panel{padding:16px;margin:14px 0}.secret-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.secret-actions a,.disabled-action{border:1px solid #22638d;padding:9px 12px;border-radius:5px}.disabled-action{color:#7894a8;opacity:.8}.secret-issue{display:grid;grid-template-columns:180px 1fr;gap:12px;padding:10px;border-bottom:1px solid #153f5c}.secret-issue b{color:#ffbe55}.probe-result{margin-top:14px;padding:12px;border:1px solid;border-radius:6px;display:grid;gap:4px}.probe-result.good{border-color:#0c9e67;background:#063c2b}.probe-result.warn{border-color:#c88a27;background:#4a3411}.provider-guidance{color:#c8dceb}.status.neutral{background:#24394a;border-color:#5c7283}
+.secret-summary,.secret-panel{padding:16px;margin:14px 0}.secret-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.secret-actions a,.disabled-action{border:1px solid #22638d;padding:9px 12px;border-radius:5px}.disabled-action{color:#7894a8;opacity:.8}.secret-issue{display:grid;grid-template-columns:180px 1fr;gap:12px;padding:10px;border-bottom:1px solid #153f5c}.secret-issue b{color:#ffbe55}.probe-result{margin-top:14px;padding:12px;border:1px solid;border-radius:6px;display:grid;gap:4px}.probe-result.good{border-color:#0c9e67;background:#063c2b}.probe-result.warn{border-color:#c88a27;background:#4a3411}.probe-result small{color:#9fb8ca}.provider-guidance{color:#c8dceb}.status.neutral{background:#24394a;border-color:#5c7283}
 """;
 }
