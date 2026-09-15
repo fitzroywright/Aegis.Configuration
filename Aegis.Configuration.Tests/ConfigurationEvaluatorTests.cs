@@ -47,6 +47,52 @@ public sealed class ConfigurationEvaluatorTests
     }
 
     [Fact]
+    public async Task RequiredSettingSatisfiedByCodeDefaultIsCompleteButNotExplicitlyConfigured()
+    {
+        ApplicationConfigurationContract contract = new("app", "App", "1.0", [
+            new("port", "Directory Port", ConfigurationRequirementKind.Configuration, true, "LDAP port",
+                ConfigurationKey: "Security:Port",
+                IsConfigured: false,
+                SafeDisplayValue: "636",
+                ConfigurationState: "Default",
+                EffectiveValueAvailable: true,
+                EffectiveSource: "Runtime/Code Default",
+                HasDefault: true,
+                DefaultValue: "636")
+        ]);
+
+        ConfigurationEvaluation result = await new ConfigurationEvaluator().EvaluateAsync(contract, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsComplete);
+        RequirementEvaluation requirement = result.Requirements.Single();
+        Assert.Equal(ConfigurationState.Default, requirement.State);
+        Assert.False(requirement.ExplicitlyConfigured);
+        Assert.True(requirement.EffectiveValueAvailable);
+        Assert.True(requirement.HasDefault);
+        Assert.Equal("636", requirement.DefaultValue);
+        Assert.Equal("Runtime/Code Default", requirement.EffectiveSource);
+    }
+
+    [Fact]
+    public async Task UnknownRequiredSecretDoesNotPretendToBeComplete()
+    {
+        ApplicationConfigurationContract contract = new("app", "App", "1.0", [
+            new("secret", "Bootstrap", ConfigurationRequirementKind.Secret, true, "Bootstrap secret",
+                IsConfigured: null,
+                Sensitive: true,
+                ConfigurationState: "Unknown",
+                EffectiveValueAvailable: null,
+                EffectiveSource: "Common.Secrets bootstrap",
+                VerificationStatus: "NotDirectlyVerifiable")
+        ]);
+
+        ConfigurationEvaluation result = await new ConfigurationEvaluator().EvaluateAsync(contract, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsComplete);
+        Assert.Equal(ConfigurationState.Unknown, result.Requirements.Single().State);
+    }
+
+    [Fact]
     public async Task SensitiveValueIsNeverExposed()
     {
         ApplicationConfigurationContract contract = new("app", "App", "1.0", [
