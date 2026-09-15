@@ -22,7 +22,11 @@ public sealed class ContractValidator
             else if (!ids.Add(requirement.Id)) errors.Add($"Duplicate requirement Id '{requirement.Id}'.");
             if (string.IsNullOrWhiteSpace(requirement.DisplayName)) errors.Add($"Requirement '{requirementName}' must declare DisplayName.");
             if (string.IsNullOrWhiteSpace(requirement.Purpose)) errors.Add($"Requirement '{requirementName}' must declare Purpose.");
-            if (!requirement.IsConfigured.HasValue) errors.Add($"Requirement '{requirementName}' must publish IsConfigured.");
+
+            bool explicitlyUnknown = string.Equals(requirement.ConfigurationState, "Unknown", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(requirement.VerificationStatus);
+            if (!requirement.IsConfigured.HasValue && !explicitlyUnknown)
+                errors.Add($"Requirement '{requirementName}' must publish IsConfigured or explicitly report an unverifiable state.");
 
             if (requirement.Sensitive && !string.IsNullOrWhiteSpace(requirement.SafeDisplayValue))
                 errors.Add($"Sensitive requirement '{requirementName}' cannot publish a display value.");
