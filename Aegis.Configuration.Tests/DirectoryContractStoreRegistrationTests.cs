@@ -62,6 +62,26 @@ public sealed class DirectoryContractStoreRegistrationTests
     }
 
     [Fact]
+    public async Task RetiredCafeteriaPublisherIsAcceptedButNeverPersistedOrDisplayed()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"aegis-configuration-{Guid.NewGuid():N}");
+        try
+        {
+            CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+            DirectoryContractStore store = new(directory);
+            ApplicationConfigurationContract legacy = CreateContract("Cafeteria.Services", "1.0.0", "Service:Url", true);
+
+            ConfigurationContractRegistrationResult result = await store.RegisterAsync(legacy, cancellationToken);
+            IReadOnlyList<ApplicationConfigurationContract> loaded = await store.LoadAllAsync(cancellationToken);
+
+            Assert.False(result.Changed);
+            Assert.Empty(loaded);
+            Assert.False(File.Exists(Path.Combine(directory, "Cafeteria.Services.configuration-contract.json")));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task RegisterRejectsUnsafeApplicationId()
     {
         string directory = Path.Combine(Path.GetTempPath(), $"aegis-configuration-{Guid.NewGuid():N}");
