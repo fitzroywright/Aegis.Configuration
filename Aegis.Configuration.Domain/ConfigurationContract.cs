@@ -25,7 +25,15 @@ public sealed record ConfigurationRequirement(
     bool? IsConfigured = null,
     string? SafeDisplayValue = null,
     string? Example = null,
-    bool Sensitive = false);
+    bool Sensitive = false,
+    string? ConditionalOn = null,
+    IReadOnlyList<string>? AllowedSources = null,
+    IReadOnlyList<string>? ResolutionOrder = null,
+    string? EffectiveSource = null,
+    bool HasDefault = false,
+    string? DefaultValue = null,
+    string? SecretPath = null,
+    bool Redacted = false);
 
 public sealed record ConfigurationEvaluation(string ApplicationId, string Version, IReadOnlyList<RequirementEvaluation> Requirements)
 {
@@ -41,4 +49,12 @@ public sealed record RequirementEvaluation(
     string? Purpose = null,
     string? SafeDisplayValue = null,
     string? Example = null,
-    bool Sensitive = false);
+    bool Sensitive = false,
+    string? ConditionalOn = null,
+    IReadOnlyList<string>? AllowedSources = null,
+    IReadOnlyList<string>? ResolutionOrder = null,
+    string? EffectiveSource = null,
+    bool HasDefault = false,
+    string? DefaultValue = null,
+    string? SecretPath = null,
+    bool Redacted = false);
