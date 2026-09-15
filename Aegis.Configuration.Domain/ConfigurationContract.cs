@@ -13,7 +13,19 @@ public sealed record ApplicationConfigurationContract(
     string? Description = null,
     DateTimeOffset? LastRegisteredAtUtc = null,
     RuntimeEnvironmentSnapshot? RuntimeEnvironment = null,
-    DiagnosticsCapability? Diagnostics = null);
+    DiagnosticsCapability? Diagnostics = null,
+    SecretProviderDeclaration? Secrets = null);
+
+/// <summary>
+/// Describes how an application says it obtains secrets. Aegis.Configuration may observe,
+/// diagnose and assist with this provider, but does not own the secret values or change the
+/// application's selected provider.
+/// </summary>
+public sealed record SecretProviderDeclaration(
+    string? Provider = null,
+    string? ManagementUrl = null,
+    string? ConnectionStatus = null,
+    string? CredentialStatus = null);
 
 /// <summary>Deployment identity only. Live health and capacity telemetry belongs to Aegis.Diagnostics.</summary>
 public sealed record RuntimeEnvironmentSnapshot(
