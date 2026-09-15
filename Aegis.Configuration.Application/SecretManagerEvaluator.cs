@@ -29,9 +29,17 @@ public sealed record SecretManagerStatus(
 {
     public bool HasSecrets => SecretRequirements.Count > 0;
     public bool IsHealthy => HasSecrets && IssueCount == 0 && Provider is not SecretProviderKind.Unknown;
-    public bool CanOpenProviderConsole => Uri.TryCreate(ManagementUrl, UriKind.Absolute, out _);
+    public bool CanOpenProviderConsole => IsHttpManagementUrl(ManagementUrl);
     public bool CanTestConnection => CanOpenProviderConsole && Provider is SecretProviderKind.OpenBao or SecretProviderKind.HashiCorpVault;
+    public bool HasCredentialStatus => !string.IsNullOrWhiteSpace(CredentialStatus);
+    public bool CredentialsVerified => HasCredentialStatus && SecretManagerEvaluator.IsPositiveStatus(CredentialStatus!);
     public string IssueLabel => IssueCount switch { 0 => IsHealthy ? "Green" : "No issues", 1 => "1 issue", _ => $"{IssueCount} issues" };
+
+    private static bool IsHttpManagementUrl(string? value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out Uri? uri)) return false;
+        return uri.Scheme is Uri.UriSchemeHttp or Uri.UriSchemeHttps;
+    }
 }
 
 public static class SecretManagerEvaluator
@@ -117,7 +125,7 @@ public static class SecretManagerEvaluator
         return string.IsNullOrWhiteSpace(normalized) ? SecretProviderKind.None : SecretProviderKind.Unknown;
     }
 
-    private static bool IsPositiveStatus(string value)
+    internal static bool IsPositiveStatus(string value)
     {
         string normalized = value.Trim().ToLowerInvariant();
         return normalized is "verified" or "healthy" or "ok" or "success" or "available" or "reachable" or "valid" or "configured";
