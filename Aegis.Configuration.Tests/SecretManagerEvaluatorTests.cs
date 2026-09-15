@@ -24,7 +24,7 @@ public sealed class SecretManagerEvaluatorTests
     }
 
     [Fact]
-    public void Infers_bitwarden_from_secret_source_for_older_contracts()
+    public void Requires_explicit_provider_when_secrets_are_declared()
     {
         var contract = Contract(null,
             new ConfigurationRequirement("graph", "Graph", ConfigurationRequirementKind.Secret, true, "Graph secret", IsConfigured: true, EffectiveSource: "Bitwarden Secrets Manager"));
@@ -32,9 +32,9 @@ public sealed class SecretManagerEvaluatorTests
 
         SecretManagerStatus result = SecretManagerEvaluator.Evaluate(contract, evaluation);
 
-        Assert.Equal(SecretProviderKind.Bitwarden, result.Provider);
-        Assert.Equal("Bitwarden", result.ProviderName);
-        Assert.Equal(0, result.IssueCount);
+        Assert.Equal(SecretProviderKind.Unknown, result.Provider);
+        Assert.Equal(1, result.IssueCount);
+        Assert.Contains(result.Issues, x => x.Code == "provider-unknown");
     }
 
     [Fact]
