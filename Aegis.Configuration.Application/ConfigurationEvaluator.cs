@@ -12,17 +12,17 @@ public sealed class ConfigurationEvaluator
 
         RequirementEvaluation[] results = contract.Requirements.Select(requirement =>
         {
-            bool configured = requirement.IsConfigured == true;
-            ConfigurationState state = configured
-                ? ConfigurationState.Configured
-                : requirement.Required
-                    ? ConfigurationState.Missing
-                    : ConfigurationState.OptionalNotConfigured;
+            bool explicitlyConfigured = requirement.IsConfigured == true;
+            bool effectiveValueAvailable = requirement.EffectiveValueAvailable
+                ?? (explicitlyConfigured || requirement.HasDefault);
 
+            ConfigurationState state = ResolveState(requirement, explicitlyConfigured, effectiveValueAvailable);
             string message = state switch
             {
-                ConfigurationState.Configured => "Configured.",
-                ConfigurationState.Missing => "Required value is missing.",
+                ConfigurationState.Configured => SourceMessage("Configured", requirement.EffectiveSource),
+                ConfigurationState.Default => SourceMessage("Using application default", requirement.EffectiveSource ?? "Runtime/Code Default"),
+                ConfigurationState.Unknown => "Configuration state could not be verified.",
+                ConfigurationState.Missing => "Required value is unresolved and no effective default is available.",
                 _ => "Optional value is not configured."
             };
 
@@ -35,9 +35,27 @@ public sealed class ConfigurationEvaluator
                 requirement.Purpose,
                 requirement.Sensitive ? null : requirement.SafeDisplayValue,
                 requirement.Example,
-                requirement.Sensitive);
+                requirement.Sensitive,
+                explicitlyConfigured,
+                effectiveValueAvailable,
+                requirement.EffectiveSource,
+                requirement.HasDefault,
+                requirement.Sensitive ? null : requirement.DefaultValue,
+                requirement.ConditionalOn,
+                requirement.VerificationStatus);
         }).ToArray();
 
         return ValueTask.FromResult(new ConfigurationEvaluation(contract.ApplicationId, contract.Version, results));
     }
+
+    private static ConfigurationState ResolveState(ConfigurationRequirement requirement, bool explicitlyConfigured, bool effectiveValueAvailable)
+    {
+        if (explicitlyConfigured) return ConfigurationState.Configured;
+        if (string.Equals(requirement.ConfigurationState, "Unknown", StringComparison.OrdinalIgnoreCase)) return ConfigurationState.Unknown;
+        if (requirement.HasDefault && effectiveValueAvailable) return ConfigurationState.Default;
+        return requirement.Required ? ConfigurationState.Missing : ConfigurationState.OptionalNotConfigured;
+    }
+
+    private static string SourceMessage(string message, string? source)
+        => string.IsNullOrWhiteSpace(source) ? message + "." : $"{message} from {source}.";
 }
