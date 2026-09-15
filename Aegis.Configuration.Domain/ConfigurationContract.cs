@@ -11,7 +11,36 @@ public sealed record ApplicationConfigurationContract(
     string? SiteId = null,
     string? InstanceId = null,
     string? Description = null,
-    DateTimeOffset? LastRegisteredAtUtc = null);
+    DateTimeOffset? LastRegisteredAtUtc = null,
+    RuntimeEnvironmentSnapshot? RuntimeEnvironment = null);
+
+public sealed record RuntimeEnvironmentSnapshot(
+    string? MachineName = null,
+    string? HostName = null,
+    string? DnsDomainName = null,
+    string? HostingEnvironment = null,
+    string? OperatingSystem = null,
+    string? OsArchitecture = null,
+    string? ProcessArchitecture = null,
+    string? FrameworkDescription = null,
+    int? ProcessorCount = null,
+    long? RuntimeAvailableMemoryBytes = null,
+    string? ContentRootPath = null,
+    IReadOnlyList<RuntimeNetworkInterface>? NetworkInterfaces = null,
+    IReadOnlyList<RuntimeStorageVolume>? Storage = null);
+
+public sealed record RuntimeNetworkInterface(
+    string? Name = null,
+    string? Type = null,
+    IReadOnlyList<string>? Addresses = null,
+    IReadOnlyList<string>? Gateways = null);
+
+public sealed record RuntimeStorageVolume(
+    string? Name = null,
+    string? DriveType = null,
+    string? Format = null,
+    long? TotalBytes = null,
+    long? AvailableBytes = null);
 
 public sealed record ConfigurationRequirement(
     string Id,
