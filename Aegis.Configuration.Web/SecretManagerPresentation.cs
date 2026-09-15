@@ -7,6 +7,8 @@ internal static class SecretManagerPresentation
     internal static string Render(ApplicationConfigurationContract contract, SecretManagerStatus status, string? testMessage = null, bool? testSucceeded = null)
     {
         string appId = Uri.EscapeDataString(contract.ApplicationId);
+        int configuredSecrets = status.SecretRequirements.Count(x => x.State is ConfigurationState.Configured or ConfigurationState.Default);
+        int requiredSecrets = status.SecretRequirements.Count(x => x.Required);
         string issues = status.Issues.Count == 0
             ? "<div class='empty'>No secret-provider issues are currently reported.</div>"
             : string.Join("", status.Issues.Select(x => $"<div class='secret-issue'><b>{E(x.Code)}</b><span>{E(x.Message)}</span></div>"));
@@ -30,17 +32,18 @@ internal static class SecretManagerPresentation
         string credentialSummary = status.HasCredentialStatus
             ? $"<div class='probe-result {credentialClass}'><b>{(status.CredentialsVerified ? "Published credential validation is healthy" : "Published credential validation reports an issue")}</b><span>{E(status.CredentialStatus)}</span><small>This status comes from the application's own configuration contract. Configuration does not retrieve or display the credential value.</small></div>"
             : "<div class='empty'>The application has not published a credential verification status, so Configuration cannot truthfully claim the credentials are valid.</div>";
+        string setup = RenderSetup(status, configuredSecrets, requiredSecrets);
 
         string content = $"""
 <style>{Css}</style>
 <section class='page-head'><div><h1>{E(contract.DisplayName)} Secrets</h1><p>Provider-aware configuration assistance. Secret values are never stored or displayed here.</p></div></section>
 <section class='panel secret-summary'>
   <div class='detail-head'><span class='bigicon'>{E(status.Glyph)}</span><div><h2>{E(status.ProviderName)}</h2><small>Declared or inferred secret provider for {E(contract.ApplicationId)}</small></div><span class='status {E(status.CssClass)}'>{E(status.IssueLabel)}</span></div>
-  <div class='facts'><div><small>PROVIDER</small><b>{E(status.ProviderName)}</b></div><div><small>CONNECTION</small><b>{E(status.ConnectionStatus)}</b></div><div><small>CREDENTIALS</small><b>{E(status.CredentialStatus)}</b></div><div><small>REQUIRED SECRETS</small><b>{status.SecretRequirements.Count(x => x.Required)}</b></div></div>
+  <div class='facts'><div><small>PROVIDER</small><b>{E(status.ProviderName)}</b></div><div><small>CONNECTION</small><b>{E(status.ConnectionStatus)}</b></div><div><small>CREDENTIALS</small><b>{E(status.CredentialStatus)}</b></div><div><small>REQUIRED SECRETS</small><b>{requiredSecrets}</b></div></div>
   <div class='secret-actions'><a href='/applications/{appId}'>Back to Configuration</a>{test}{credentialAction}{console}</div>
   {result}
 </section>
-<section class='panel secret-panel'><h2>Configure</h2><p>Configuration may guide and validate the provider declared by the application. It does not change the selected provider and does not become a secret store.</p><div class='provider-guidance'>{ProviderGuidance(status.Provider)}</div></section>
+<section class='panel secret-panel'><h2>Configure</h2><p>Use this checklist to fix the provider setup already declared by the application. Configuration does not change the provider, store secret values, repair machine identity, or perform Secret Zero bootstrap.</p>{setup}</section>
 <section id='credentials' class='panel secret-panel'><h2>Credential Validation</h2>{credentialSummary}</section>
 <section id='issues' class='panel secret-panel'><h2>Issues</h2>{issues}</section>
 <section class='panel secret-panel'><h2>Declared Secret Requirements</h2>{requirements}</section>
@@ -48,20 +51,49 @@ internal static class SecretManagerPresentation
         return ConfigurationShell.Render($"{contract.DisplayName} Secrets", content, "applications");
     }
 
+    private static string RenderSetup(SecretManagerStatus status, int configuredSecrets, int requiredSecrets)
+    {
+        string endpointState = status.CanOpenProviderConsole ? "ok" : "bad";
+        string endpointText = status.CanOpenProviderConsole ? E(status.ManagementUrl) : "No usable HTTP(S) provider endpoint published";
+        string connectionState = IsPositive(status.ConnectionStatus) ? "ok" : "bad";
+        string connectionText = string.IsNullOrWhiteSpace(status.ConnectionStatus) ? "Not published by application" : E(status.ConnectionStatus);
+        string credentialState = status.CredentialsVerified ? "ok" : "bad";
+        string credentialText = status.HasCredentialStatus ? E(status.CredentialStatus) : "Not published by application";
+        string requirementsState = requiredSecrets == 0 || configuredSecrets >= requiredSecrets ? "ok" : "bad";
+        string requirementsText = requiredSecrets == 0 ? "No required secrets declared" : $"{configuredSecrets} of {requiredSecrets} required secret requirements currently configured";
+
+        return $"""
+<div class='setup-grid'>
+  <div class='setup-step'><i class='{endpointState}'>{(endpointState == "ok" ? "✓" : "!")}</i><span><b>1. Provider endpoint</b><small>{endpointText}</small></span></div>
+  <div class='setup-step'><i class='{connectionState}'>{(connectionState == "ok" ? "✓" : "!")}</i><span><b>2. Provider connection</b><small>{connectionText}</small></span></div>
+  <div class='setup-step'><i class='{credentialState}'>{(credentialState == "ok" ? "✓" : "!")}</i><span><b>3. Existing credentials</b><small>{credentialText}</small></span></div>
+  <div class='setup-step'><i class='{requirementsState}'>{(requirementsState == "ok" ? "✓" : "!")}</i><span><b>4. Required secrets</b><small>{requirementsText}</small></span></div>
+</div>
+<div class='provider-guidance'>{ProviderGuidance(status.Provider)}</div>
+""";
+    }
+
+    private static bool IsPositive(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        string normalized = value.Trim().ToLowerInvariant();
+        return normalized is "verified" or "healthy" or "ok" or "success" or "available" or "reachable" or "valid" or "configured";
+    }
+
     private static string ProviderGuidance(SecretProviderKind provider) => provider switch
     {
-        SecretProviderKind.OpenBao => "<p>OpenBao setup can validate the declared endpoint, current provider state and required secret access. Machine-identity repair and Secret Zero are intentionally out of scope.</p>",
-        SecretProviderKind.Bitwarden => "<p>Bitwarden setup currently validates the application declaration and secret requirement state. Provider provisioning is not performed by Configuration.</p>",
-        SecretProviderKind.HashiCorpVault => "<p>HashiCorp Vault setup can validate the declared endpoint and required secret state. Provider changes and bootstrap identity work are not performed here.</p>",
-        SecretProviderKind.Environment => "<p>Environment-backed secrets are validated from the application's published requirement state. Configuration does not write environment variables to the target host.</p>",
-        SecretProviderKind.AppSettings => "<p>AppSettings-backed secrets are reported and reviewed here. Configuration does not write secret values into application settings.</p>",
+        SecretProviderKind.OpenBao => "<p><b>OpenBao:</b> confirm the published OpenBao URL, use Test Connection to verify the HTTP endpoint, review the application's published credential status, then resolve any missing secret requirements in OpenBao itself. Machine-identity repair and Secret Zero remain intentionally out of scope.</p>",
+        SecretProviderKind.Bitwarden => "<p><b>Bitwarden:</b> review the published provider and credential state, open the provider console when a management URL is available, and resolve missing declared secrets there. Configuration does not provision machine accounts or tokens.</p>",
+        SecretProviderKind.HashiCorpVault => "<p><b>HashiCorp Vault:</b> verify the published Vault URL, test the HTTP endpoint, review the application's credential status, then resolve missing declared secrets in Vault. Provider changes and bootstrap identity work are not performed here.</p>",
+        SecretProviderKind.Environment => "<p><b>Environment:</b> use the missing requirement list to identify environment variables the target process cannot currently resolve. Configuration reports the problem but does not write variables to the host.</p>",
+        SecretProviderKind.AppSettings => "<p><b>AppSettings:</b> use the requirement list to identify missing or unhealthy app settings. Configuration does not write secret values into application settings and continues to hide sensitive values.</p>",
         SecretProviderKind.None => "<p>No secret provider is required by the current contract.</p>",
-        _ => "<p>The application declares secrets but the provider could not be identified. Publish an optional Secrets provider declaration or a recognizable effective source.</p>"
+        _ => "<p>The application declares secrets but the provider could not be identified. Publish an optional Secrets provider declaration or a recognizable effective source before provider-specific assistance can be offered.</p>"
     };
 
     private static string E(string? value) => HtmlEncoder.Default.Encode(value ?? "—");
 
     private const string Css = """
-.secret-summary,.secret-panel{padding:16px;margin:14px 0}.secret-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.secret-actions a,.disabled-action{border:1px solid #22638d;padding:9px 12px;border-radius:5px}.disabled-action{color:#7894a8;opacity:.8}.secret-issue{display:grid;grid-template-columns:180px 1fr;gap:12px;padding:10px;border-bottom:1px solid #153f5c}.secret-issue b{color:#ffbe55}.probe-result{margin-top:14px;padding:12px;border:1px solid;border-radius:6px;display:grid;gap:4px}.probe-result.good{border-color:#0c9e67;background:#063c2b}.probe-result.warn{border-color:#c88a27;background:#4a3411}.probe-result small{color:#9fb8ca}.provider-guidance{color:#c8dceb}.status.neutral{background:#24394a;border-color:#5c7283}
+.secret-summary,.secret-panel{padding:16px;margin:14px 0}.secret-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.secret-actions a,.disabled-action{border:1px solid #22638d;padding:9px 12px;border-radius:5px}.disabled-action{color:#7894a8;opacity:.8}.secret-issue{display:grid;grid-template-columns:180px 1fr;gap:12px;padding:10px;border-bottom:1px solid #153f5c}.secret-issue b{color:#ffbe55}.probe-result{margin-top:14px;padding:12px;border:1px solid;border-radius:6px;display:grid;gap:4px}.probe-result.good{border-color:#0c9e67;background:#063c2b}.probe-result.warn{border-color:#c88a27;background:#4a3411}.probe-result small{color:#9fb8ca}.provider-guidance{color:#c8dceb;margin-top:14px}.setup-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.setup-step{display:grid;grid-template-columns:28px 1fr;gap:8px;border:1px solid #1f587d;border-radius:6px;padding:10px}.setup-step i{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-style:normal}.setup-step i.ok{background:#08764e}.setup-step i.bad{background:#986016}.setup-step small{display:block;color:#9fb8ca;margin-top:2px}.status.neutral{background:#24394a;border-color:#5c7283}@media(max-width:800px){.setup-grid{grid-template-columns:1fr}}
 """;
 }
