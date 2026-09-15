@@ -26,13 +26,13 @@ internal static class ApplicationPresentation
     <div><small>LAST REGISTERED</small><b>{Registered(contract.LastRegisteredAtUtc)}</b></div>
     <div><small>APPLICATION ID</small><b>{E(contract.ApplicationId)}</b></div>
   </div>
-  <div class='page-actions'><a href='/applications/{appId}'>← Back to Application</a><a href='/applications/{appId}/contract'>View Contract</a><a href='/runbooks/{appId}'>Runbook</a></div>
+  <nav class='tabs presentation-tabs'><a href='/applications/{appId}'>Requirements</a><b>Details</b><a href='#diagnostics'>Diagnostics</a><a href='/runbooks/{appId}'>Runbook</a><a href='/applications/{appId}/contract'>Contract</a></nav>
 </section>
 <section class='presentation-grid'>
   <section class='panel presentation-panel'><h2>Required Configuration</h2>{required}</section>
   <section class='panel presentation-panel'><h2>Optional Configuration</h2>{optional}</section>
 </section>
-<section class='panel presentation-panel'><h2>Diagnostics Capability</h2>{diagnostics}</section>
+<section id='diagnostics' class='panel presentation-panel'><h2>Diagnostics Capability</h2>{diagnostics}</section>
 <section class='panel presentation-panel'><h2>Detected Runtime Environment</h2>{runtime}</section>
 <details class='panel raw-section'><summary>Raw commissioning report</summary><p class='muted'>Troubleshooting view. The formatted application details above remain the primary presentation.</p><pre class='raw-box'>{E(rawReport)}</pre></details>
 """;
@@ -60,13 +60,13 @@ internal static class ApplicationPresentation
     <div><small>INSTANCE</small><b>{E(contract.InstanceId)}</b></div>
     <div><small>LAST REGISTERED</small><b>{Registered(contract.LastRegisteredAtUtc)}</b></div>
   </div>
-  <div class='page-actions'><a href='/applications/{appId}'>← Back to Application</a><a href='/applications/{appId}/details'>Details</a><a href='/runbooks/{appId}'>Runbook</a></div>
+  <nav class='tabs presentation-tabs'><a href='/applications/{appId}'>Requirements</a><a href='/applications/{appId}/details'>Details</a><a href='#diagnostics'>Diagnostics</a><a href='/runbooks/{appId}'>Runbook</a><b>Contract</b></nav>
 </section>
 <section class='presentation-grid'>
   <section class='panel presentation-panel'><h2>Required Contract Items</h2>{required}</section>
   <section class='panel presentation-panel'><h2>Optional Contract Items</h2>{optional}</section>
 </section>
-<section class='panel presentation-panel'><h2>Diagnostics Contract</h2>{diagnostics}</section>
+<section id='diagnostics' class='panel presentation-panel'><h2>Diagnostics Contract</h2>{diagnostics}</section>
 <details class='panel raw-section'><summary>Raw JSON contract</summary><p class='muted'>Machine-readable source. Scroll inside this box rather than replacing the application UI.</p><pre class='raw-box'>{E(json)}</pre></details>
 """;
         return ConfigurationShell.Render($"{contract.DisplayName} Contract", content, "applications");
@@ -128,6 +128,6 @@ internal static class ApplicationPresentation
     private static string E(string? value) => HtmlEncoder.Default.Encode(value ?? "—");
 
     private const string PageCss = """
-.presentation-head{padding:16px;margin:14px 0}.presentation-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}.presentation-panel{padding:16px;margin:14px 0;min-width:0}.presentation-grid .presentation-panel{margin:0}.presentation-panel h2{margin-top:0}.presentation-facts{grid-template-columns:repeat(4,minmax(0,1fr));gap:0}.presentation-facts b{overflow-wrap:anywhere}.page-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.page-actions a{border:1px solid #22638d;padding:9px 12px;border-radius:5px;background:#03213a}.presentation-table{overflow:auto;border:1px solid #153f5c;border-radius:6px}.presentation-table table{min-width:720px}.presentation-table td{white-space:normal;vertical-align:top}.presentation-table code{color:#80d5ff;overflow-wrap:anywhere}.raw-section{padding:16px;margin:14px 0}.raw-section summary{cursor:pointer;color:#7dcaff;font-weight:800;font-size:15px}.raw-box{display:block;width:100%;max-width:100%;max-height:520px;overflow:auto;white-space:pre;font:12px/1.5 Consolas,'Courier New',monospace;background:#000b13;border:1px solid #275b7c;border-radius:6px;padding:16px;color:#cfe8fa;margin-top:12px}@media(max-width:1000px){.presentation-grid{grid-template-columns:1fr}.presentation-facts{grid-template-columns:1fr 1fr}}@media(max-width:650px){.presentation-facts{grid-template-columns:1fr}}
+.presentation-head{padding:16px;margin:14px 0}.presentation-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}.presentation-panel{padding:16px;margin:14px 0;min-width:0}.presentation-grid .presentation-panel{margin:0}.presentation-panel h2{margin-top:0}.presentation-facts{grid-template-columns:repeat(4,minmax(0,1fr));gap:0}.presentation-facts b{overflow-wrap:anywhere}.presentation-tabs{margin-top:12px}.presentation-table{overflow:auto;border:1px solid #153f5c;border-radius:6px}.presentation-table table{min-width:720px}.presentation-table td{white-space:normal;vertical-align:top}.presentation-table code{color:#80d5ff;overflow-wrap:anywhere}.raw-section{padding:16px;margin:14px 0}.raw-section summary{cursor:pointer;color:#7dcaff;font-weight:800;font-size:15px}.raw-box{display:block;width:100%;max-width:100%;max-height:520px;overflow:auto;white-space:pre;font:12px/1.5 Consolas,'Courier New',monospace;background:#000b13;border:1px solid #275b7c;border-radius:6px;padding:16px;color:#cfe8fa;margin-top:12px}@media(max-width:1000px){.presentation-grid{grid-template-columns:1fr}.presentation-facts{grid-template-columns:1fr 1fr}}@media(max-width:650px){.presentation-facts{grid-template-columns:1fr}}
 """;
 }
