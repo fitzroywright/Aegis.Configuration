@@ -1,7 +1,7 @@
 namespace Aegis.Configuration.Domain;
 
 public enum ConfigurationRequirementKind { Configuration, Secret, ExternalService }
-public enum ConfigurationState { OptionalNotConfigured, Missing, Configured }
+public enum ConfigurationState { OptionalNotConfigured, Missing, Configured, Default, Unknown }
 
 public sealed record ApplicationConfigurationContract(
     string ApplicationId,
@@ -25,11 +25,19 @@ public sealed record ConfigurationRequirement(
     bool? IsConfigured = null,
     string? SafeDisplayValue = null,
     string? Example = null,
-    bool Sensitive = false);
+    bool Sensitive = false,
+    string? ConfigurationState = null,
+    bool? EffectiveValueAvailable = null,
+    string? EffectiveSource = null,
+    bool HasDefault = false,
+    string? DefaultValue = null,
+    string? ConditionalOn = null,
+    string? VerificationStatus = null,
+    string? SecretPath = null);
 
 public sealed record ConfigurationEvaluation(string ApplicationId, string Version, IReadOnlyList<RequirementEvaluation> Requirements)
 {
-    public bool IsComplete => Requirements.Where(x => x.Required).All(x => x.State == ConfigurationState.Configured);
+    public bool IsComplete => Requirements.Where(x => x.Required).All(x => x.State is ConfigurationState.Configured or ConfigurationState.Default);
 }
 
 public sealed record RequirementEvaluation(
@@ -41,4 +49,11 @@ public sealed record RequirementEvaluation(
     string? Purpose = null,
     string? SafeDisplayValue = null,
     string? Example = null,
-    bool Sensitive = false);
+    bool Sensitive = false,
+    bool ExplicitlyConfigured = false,
+    bool EffectiveValueAvailable = false,
+    string? EffectiveSource = null,
+    bool HasDefault = false,
+    string? DefaultValue = null,
+    string? ConditionalOn = null,
+    string? VerificationStatus = null);
