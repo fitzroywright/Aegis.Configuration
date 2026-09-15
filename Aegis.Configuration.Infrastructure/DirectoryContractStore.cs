@@ -15,7 +15,7 @@ public sealed class DirectoryContractStore(string directoryPath) : IConfiguratio
     {
         if (!Directory.Exists(directoryPath)) return [];
         List<ApplicationConfigurationContract> contracts = [];
-        foreach (string path in Directory.EnumerateFiles(directoryPath, "*.json", SearchOption.TopDirectoryOnly))
+        foreach (string path in Directory.EnumerateFiles(directoryPath, "*.configuration-contract.json", SearchOption.TopDirectoryOnly))
         {
             await using FileStream stream = File.OpenRead(path);
             ApplicationConfigurationContract? contract;
@@ -37,8 +37,6 @@ public sealed class DirectoryContractStore(string directoryPath) : IConfiguratio
         Directory.CreateDirectory(directoryPath);
         string path = Path.Combine(directoryPath, $"{safeApplicationId}.configuration-contract.json");
 
-        // The server, not the application, owns registration time. Every authenticated successful registration is a heartbeat,
-        // including an otherwise unchanged contract. This makes stale/unknown state trustworthy across all publishers.
         ApplicationConfigurationContract stamped = contract with { LastRegisteredAtUtc = DateTimeOffset.UtcNow };
         byte[] semanticContent = JsonSerializer.SerializeToUtf8Bytes(contract with { LastRegisteredAtUtc = null }, jsonOptions);
         string hash = Convert.ToHexString(SHA256.HashData(semanticContent));
