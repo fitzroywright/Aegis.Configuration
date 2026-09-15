@@ -43,7 +43,7 @@ public sealed class DirectoryContractStore(string directoryPath) : IConfiguratio
 
         if (IsRetiredPublisher(contract.ApplicationId))
         {
-            byte[] retiredSemanticContent = JsonSerializer.SerializeToUtf8Bytes(contract with { LastRegisteredAtUtc = null }, jsonOptions);
+            byte[] retiredSemanticContent = SemanticBytes(contract);
             string retiredHash = Convert.ToHexString(SHA256.HashData(retiredSemanticContent));
             return new(contract.ApplicationId, contract.Version, false, retiredHash, DateTimeOffset.UtcNow);
         }
@@ -52,10 +52,11 @@ public sealed class DirectoryContractStore(string directoryPath) : IConfiguratio
         Directory.CreateDirectory(directoryPath);
         string path = Path.Combine(directoryPath, $"{safeApplicationId}.configuration-contract.json");
 
-        // The server, not the application, owns registration time. Every authenticated successful registration is a heartbeat,
-        // including an otherwise unchanged contract. This makes stale/unknown state trustworthy across all publishers.
+        // The server, not the application, owns registration time. Every authenticated successful registration is a heartbeat.
+        // RuntimeEnvironment is observational telemetry, not contract semantics, so changing free disk/memory/IP data does not
+        // falsely report that the application's configuration contract changed.
         ApplicationConfigurationContract stamped = contract with { LastRegisteredAtUtc = DateTimeOffset.UtcNow };
-        byte[] semanticContent = JsonSerializer.SerializeToUtf8Bytes(contract with { LastRegisteredAtUtc = null }, jsonOptions);
+        byte[] semanticContent = SemanticBytes(contract);
         string hash = Convert.ToHexString(SHA256.HashData(semanticContent));
         bool changed = true;
         if (File.Exists(path))
@@ -66,7 +67,7 @@ public sealed class DirectoryContractStore(string directoryPath) : IConfiguratio
                 ApplicationConfigurationContract? previous = JsonSerializer.Deserialize<ApplicationConfigurationContract>(existing, jsonOptions);
                 if (previous is not null)
                 {
-                    byte[] previousSemantic = JsonSerializer.SerializeToUtf8Bytes(previous with { LastRegisteredAtUtc = null }, jsonOptions);
+                    byte[] previousSemantic = SemanticBytes(previous);
                     changed = !CryptographicOperations.FixedTimeEquals(SHA256.HashData(previousSemantic), SHA256.HashData(semanticContent));
                 }
             }
@@ -79,6 +80,9 @@ public sealed class DirectoryContractStore(string directoryPath) : IConfiguratio
         finally { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); }
         return new(contract.ApplicationId, contract.Version, changed, hash, stamped.LastRegisteredAtUtc.Value);
     }
+
+    private static byte[] SemanticBytes(ApplicationConfigurationContract contract)
+        => JsonSerializer.SerializeToUtf8Bytes(contract with { LastRegisteredAtUtc = null, RuntimeEnvironment = null }, jsonOptions);
 
     public static bool IsSafeApplicationId(string applicationId) => !string.IsNullOrWhiteSpace(applicationId) && applicationId.All(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_');
     private static bool IsRetiredPublisher(string applicationId) => string.Equals(applicationId, RetiredCafeteriaApplicationId, StringComparison.OrdinalIgnoreCase);
