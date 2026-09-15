@@ -55,11 +55,11 @@ public static class SecretManagerEvaluator
             .Where(x => secretIds.Contains(x.RequirementId))
             .ToArray();
 
-        SecretProviderKind provider = ResolveProvider(contract, secrets);
+        SecretProviderKind provider = ResolveProvider(contract, secrets.Length > 0);
         var issues = new List<SecretManagerIssue>();
 
         if (secrets.Length > 0 && provider == SecretProviderKind.Unknown)
-            issues.Add(new("provider-unknown", "The application declares secret requirements but does not identify a supported secret provider."));
+            issues.Add(new("provider-unknown", "The application declares secret requirements but does not explicitly declare a supported secret provider."));
 
         foreach (RequirementEvaluation secret in secrets.Where(x => x.Required))
         {
@@ -94,24 +94,11 @@ public static class SecretManagerEvaluator
             credentialStatus);
     }
 
-    private static SecretProviderKind ResolveProvider(ApplicationConfigurationContract contract, IReadOnlyList<RequirementEvaluation> secrets)
+    private static SecretProviderKind ResolveProvider(ApplicationConfigurationContract contract, bool hasSecrets)
     {
+        if (!hasSecrets) return SecretProviderKind.None;
         string? declared = contract.Secrets?.Provider;
-        if (!string.IsNullOrWhiteSpace(declared)) return ParseProvider(declared);
-
-        string[] sources = secrets.Select(x => x.EffectiveSource)
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Cast<string>()
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        SecretProviderKind[] detected = sources.Select(ParseProvider)
-            .Where(x => x is not SecretProviderKind.Unknown and not SecretProviderKind.None)
-            .Distinct()
-            .ToArray();
-
-        if (detected.Length == 1) return detected[0];
-        return secrets.Count == 0 ? SecretProviderKind.None : SecretProviderKind.Unknown;
+        return string.IsNullOrWhiteSpace(declared) ? SecretProviderKind.Unknown : ParseProvider(declared);
     }
 
     private static SecretProviderKind ParseProvider(string value)
@@ -122,7 +109,7 @@ public static class SecretManagerEvaluator
         if (normalized.Contains("hashicorp", StringComparison.Ordinal) || normalized is "vault" or "hashicorpvault") return SecretProviderKind.HashiCorpVault;
         if (normalized.Contains("environment", StringComparison.Ordinal)) return SecretProviderKind.Environment;
         if (normalized.Contains("appsettings", StringComparison.Ordinal) || normalized.Contains("configuration", StringComparison.Ordinal)) return SecretProviderKind.AppSettings;
-        return string.IsNullOrWhiteSpace(normalized) ? SecretProviderKind.None : SecretProviderKind.Unknown;
+        return SecretProviderKind.Unknown;
     }
 
     internal static bool IsPositiveStatus(string value)
