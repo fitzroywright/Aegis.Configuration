@@ -29,7 +29,7 @@ public sealed class DirectoryContractStoreRegistrationTests
     }
 
     [Fact]
-    public async Task RuntimeEnvironmentIsPersistedButDoesNotChangeSemanticHash()
+    public async Task RuntimeIdentityIsPersistedButDoesNotChangeSemanticHash()
     {
         string directory = Path.Combine(Path.GetTempPath(), $"aegis-configuration-{Guid.NewGuid():N}");
         try
@@ -40,30 +40,32 @@ public sealed class DirectoryContractStoreRegistrationTests
             {
                 RuntimeEnvironment = new RuntimeEnvironmentSnapshot(
                     MachineName: "host-a",
+                    HostName: "host-a.fftpj.local",
                     HostingEnvironment: "Production",
                     OperatingSystem: "Test OS",
                     ProcessorCount: 4,
-                    RuntimeAvailableMemoryBytes: 8_000_000,
-                    Storage: [new RuntimeStorageVolume("/", "Fixed", "testfs", 100_000_000, 60_000_000)])
+                    Storage: [new RuntimeStorageVolume("/", "Fixed", "testfs")])
             };
             ApplicationConfigurationContract secondContract = firstContract with
             {
                 RuntimeEnvironment = firstContract.RuntimeEnvironment! with
                 {
-                    RuntimeAvailableMemoryBytes = 7_000_000,
-                    Storage = [new RuntimeStorageVolume("/", "Fixed", "testfs", 100_000_000, 55_000_000)]
+                    MachineName = "host-b",
+                    HostName = "host-b.fftpj.local",
+                    Storage = [new RuntimeStorageVolume("D:", "Fixed", "testfs")]
                 }
             };
 
-            ConfigurationContractRegistrationResult first = await store.RegisterAsync(firstContract, cancellationToken);
-            ConfigurationContractRegistrationResult second = await store.RegisterAsync(secondContract, cancellationToken);
+            var first = await store.RegisterAsync(firstContract, cancellationToken);
+            var second = await store.RegisterAsync(secondContract, cancellationToken);
             ApplicationConfigurationContract loaded = Assert.Single(await store.LoadAllAsync(cancellationToken));
 
             Assert.True(first.Changed);
             Assert.False(second.Changed);
             Assert.Equal(first.ContractHash, second.ContractHash);
-            Assert.Equal(7_000_000, loaded.RuntimeEnvironment?.RuntimeAvailableMemoryBytes);
-            Assert.Equal(55_000_000, loaded.RuntimeEnvironment?.Storage?.Single().AvailableBytes);
+            Assert.Equal("host-b", loaded.RuntimeEnvironment?.MachineName);
+            Assert.Equal("host-b.fftpj.local", loaded.RuntimeEnvironment?.HostName);
+            Assert.Equal("D:", loaded.RuntimeEnvironment?.Storage?.Single().Name);
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
@@ -111,7 +113,7 @@ public sealed class DirectoryContractStoreRegistrationTests
             DirectoryContractStore store = new(directory);
             ApplicationConfigurationContract legacy = CreateContract("Cafeteria.Services", "1.0.0", "Service:Url", true);
 
-            ConfigurationContractRegistrationResult result = await store.RegisterAsync(legacy, cancellationToken);
+            var result = await store.RegisterAsync(legacy, cancellationToken);
             IReadOnlyList<ApplicationConfigurationContract> loaded = await store.LoadAllAsync(cancellationToken);
 
             Assert.False(result.Changed);
