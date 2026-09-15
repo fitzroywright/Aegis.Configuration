@@ -38,7 +38,8 @@ public sealed record SecretManagerStatus(
     private static bool IsHttpManagementUrl(string? value)
     {
         if (!Uri.TryCreate(value, UriKind.Absolute, out Uri? uri)) return false;
-        return uri.Scheme is Uri.UriSchemeHttp or Uri.UriSchemeHttps;
+        return string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
     }
 }
 
