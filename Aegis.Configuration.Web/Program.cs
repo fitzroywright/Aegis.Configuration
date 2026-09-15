@@ -123,5 +123,28 @@ static string RenderDetails((ApplicationConfigurationContract Contract, Configur
     return $"<aside class='detail'><div class='detail-head'><span class='bigicon'>▣</span><div><h2>{E(x.Contract.DisplayName)}</h2><small>{E(x.Contract.ApplicationId)}</small></div><span class='status {(x.Evaluation.IsComplete ? "good" : "warn")}'>{(x.Evaluation.IsComplete ? "Configured" : "Not Configured")}</span></div><div class='facts'><div><small>VERSION</small><b>{E(x.Contract.Version)}</b></div><div><small>SITE / INSTANCE</small><b>{E(x.Contract.SiteId)} / {E(x.Contract.InstanceId)}</b></div><div><small>REGISTERED</small><b>{Registered(x.Contract.LastRegisteredAtUtc, "MMM d, yyyy")}</b></div><div><small>APPLICATION ID</small><b>{E(x.Contract.ApplicationId)}</b></div></div><nav class='tabs'><b>Requirements</b><a href='/api/report/{Uri.EscapeDataString(x.Contract.ApplicationId)}'>Details</a><a href='/runbooks/{Uri.EscapeDataString(x.Contract.ApplicationId)}'>Runbooks</a><a href='/api/contracts'>Contract</a></nav><h3>Required Requirements</h3><div class='reqs'>{(string.IsNullOrEmpty(req) ? "<div class='empty'>None</div>" : req)}</div><h3>Optional Requirements</h3><div class='reqs'>{(string.IsNullOrEmpty(opt) ? "<div class='empty'>None</div>" : opt)}</div><div class='actions'><a href='/api/contracts'>View Contract</a><a href='/runbooks/{Uri.EscapeDataString(x.Contract.ApplicationId)}'>View Runbooks</a><a href='/api/report/{Uri.EscapeDataString(x.Contract.ApplicationId)}'>Print / PDF</a></div></aside>";
 }
 
-static string RenderRequirement(RequirementEvaluation r) => $"<div class='req'><span><b>{E(r.DisplayName)}</b><small>{E(r.Purpose ?? r.Message)}</small></span><code>{(r.Sensitive ? "Protected / not displayed" : E(r.SafeDisplayValue))}</code><i class='{(r.State == ConfigurationState.Configured ? "ok" : "bad")}'>{(r.State == ConfigurationState.Configured ? "✓" : "!")}</i></div>";
+static string RenderRequirement(RequirementEvaluation r)
+{
+    string value = r.Sensitive ? "Protected / not displayed" : E(r.SafeDisplayValue);
+    string source = string.IsNullOrWhiteSpace(r.EffectiveSource) ? "Source: unresolved" : $"Source: {E(r.EffectiveSource)}";
+    string defaultText = r.HasDefault && !r.Sensitive ? $" · Default: {E(r.DefaultValue)}" : string.Empty;
+    string condition = string.IsNullOrWhiteSpace(r.ConditionalOn) ? string.Empty : $" · When: {E(r.ConditionalOn)}";
+    string stateLabel = r.State switch
+    {
+        ConfigurationState.Configured => "Configured",
+        ConfigurationState.Default => "Default",
+        ConfigurationState.Unknown => "Unknown",
+        ConfigurationState.Missing => "Missing",
+        _ => "Optional"
+    };
+    string iconClass = r.State is ConfigurationState.Configured or ConfigurationState.Default ? "ok" : "bad";
+    string icon = r.State switch
+    {
+        ConfigurationState.Configured => "✓",
+        ConfigurationState.Default => "D",
+        ConfigurationState.Unknown => "?",
+        _ => "!"
+    };
+    return $"<div class='req'><span><b>{E(r.DisplayName)}</b><small>{E(r.Purpose ?? r.Message)}</small><small>{stateLabel} · {source}{defaultText}{condition}</small></span><code>{value}</code><i class='{iconClass}'>{icon}</i></div>";
+}
 static string AppGlyph(int i) => new[] { "▣", "◇", "▦", "⌁", "◈", "▤" }[i % 6];
