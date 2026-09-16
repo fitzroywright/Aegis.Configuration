@@ -16,9 +16,13 @@ public sealed record SecretManagerStatus(
     public bool HasSecrets => SecretRequirements.Count > 0;
     public bool IsHealthy => HasSecrets && IssueCount == 0 && !string.Equals(ProviderName, "Unknown provider", StringComparison.OrdinalIgnoreCase);
     public bool CanOpenProviderConsole => IsHttpManagementUrl(ManagementUrl);
+    // Configuration cannot invent provider-specific health paths. A future Common.Secrets capability may publish one explicitly.
+    public bool CanTestConnection => false;
     public bool HasCredentialStatus => !string.IsNullOrWhiteSpace(CredentialStatus);
     public bool CredentialsVerified => HasCredentialStatus && SecretManagerEvaluator.IsPositiveStatus(CredentialStatus!);
     public string IssueLabel => IssueCount switch { 0 => IsHealthy ? "Green" : "No issues", 1 => "1 issue", _ => $"{IssueCount} issues" };
+    public string Glyph => HasSecrets ? "🔐" : "—";
+    public string CssClass => !HasSecrets ? "neutral" : IsHealthy ? "good" : "warn";
 
     private static bool IsHttpManagementUrl(string? value)
     {
