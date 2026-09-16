@@ -6,33 +6,47 @@ namespace Aegis.Configuration.Tests;
 public sealed class SecretManagerEvaluatorTests
 {
     [Fact]
-    public void Uses_explicit_openbao_declaration()
+    public void Uses_explicit_provider_declaration_without_interpreting_provider_type()
     {
         var contract = Contract(
             new SecretProviderDeclaration("OpenBao", "https://openbao.example:8200", "Healthy", "Valid"),
-            new ConfigurationRequirement("db", "Database", ConfigurationRequirementKind.Secret, true, "Database credential", IsConfigured: true, EffectiveSource: "OpenBao", VerificationStatus: "Verified"));
-        var evaluation = Evaluation(new RequirementEvaluation("db", "Database", true, ConfigurationState.Configured, "Configured.", EffectiveSource: "OpenBao", VerificationStatus: "Verified"));
+            new ConfigurationRequirement("db", "Database", ConfigurationRequirementKind.Secret, true, "Database credential", IsConfigured: true, EffectiveSource: "Common.Secrets", VerificationStatus: "Verified"));
+        var evaluation = Evaluation(new RequirementEvaluation("db", "Database", true, ConfigurationState.Configured, "Configured.", EffectiveSource: "Common.Secrets", VerificationStatus: "Verified"));
 
         SecretManagerStatus result = SecretManagerEvaluator.Evaluate(contract, evaluation);
 
-        Assert.Equal(SecretProviderKind.OpenBao, result.Provider);
+        Assert.Equal("OpenBao", result.ProviderName);
         Assert.True(result.IsHealthy);
         Assert.Equal(0, result.IssueCount);
-        Assert.True(result.CanTestConnection);
+        Assert.False(result.CanTestConnection);
         Assert.True(result.HasCredentialStatus);
         Assert.True(result.CredentialsVerified);
+    }
+
+    [Fact]
+    public void Accepts_unknown_future_provider_without_configuration_code_change()
+    {
+        var contract = Contract(
+            new SecretProviderDeclaration("FutureProvider", "https://secrets.example", "Healthy", "Valid"),
+            new ConfigurationRequirement("db", "Database", ConfigurationRequirementKind.Secret, true, "Database credential", IsConfigured: true, EffectiveSource: "Common.Secrets"));
+        var evaluation = Evaluation(new RequirementEvaluation("db", "Database", true, ConfigurationState.Configured, "Configured.", EffectiveSource: "Common.Secrets"));
+
+        SecretManagerStatus result = SecretManagerEvaluator.Evaluate(contract, evaluation);
+
+        Assert.Equal("FutureProvider", result.ProviderName);
+        Assert.True(result.IsHealthy);
     }
 
     [Fact]
     public void Requires_explicit_provider_when_secrets_are_declared()
     {
         var contract = Contract(null,
-            new ConfigurationRequirement("graph", "Graph", ConfigurationRequirementKind.Secret, true, "Graph secret", IsConfigured: true, EffectiveSource: "Bitwarden Secrets Manager"));
-        var evaluation = Evaluation(new RequirementEvaluation("graph", "Graph", true, ConfigurationState.Configured, "Configured.", EffectiveSource: "Bitwarden Secrets Manager"));
+            new ConfigurationRequirement("graph", "Graph", ConfigurationRequirementKind.Secret, true, "Graph secret", IsConfigured: true, EffectiveSource: "Common.Secrets"));
+        var evaluation = Evaluation(new RequirementEvaluation("graph", "Graph", true, ConfigurationState.Configured, "Configured.", EffectiveSource: "Common.Secrets"));
 
         SecretManagerStatus result = SecretManagerEvaluator.Evaluate(contract, evaluation);
 
-        Assert.Equal(SecretProviderKind.Unknown, result.Provider);
+        Assert.Equal("Unknown provider", result.ProviderName);
         Assert.Equal(1, result.IssueCount);
         Assert.Contains(result.Issues, x => x.Code == "provider-unknown");
     }
@@ -40,9 +54,9 @@ public sealed class SecretManagerEvaluatorTests
     [Fact]
     public void Reports_missing_required_secret_as_issue()
     {
-        var contract = Contract(new SecretProviderDeclaration("OpenBao"),
-            new ConfigurationRequirement("signing", "Signing Key", ConfigurationRequirementKind.Secret, true, "Signs messages", IsConfigured: false, EffectiveSource: "OpenBao"));
-        var evaluation = Evaluation(new RequirementEvaluation("signing", "Signing Key", true, ConfigurationState.Missing, "Required value is unresolved and no effective default is available.", EffectiveSource: "OpenBao"));
+        var contract = Contract(new SecretProviderDeclaration("AnyProvider"),
+            new ConfigurationRequirement("signing", "Signing Key", ConfigurationRequirementKind.Secret, true, "Signs messages", IsConfigured: false, EffectiveSource: "Common.Secrets"));
+        var evaluation = Evaluation(new RequirementEvaluation("signing", "Signing Key", true, ConfigurationState.Missing, "Required value is unresolved and no effective default is available.", EffectiveSource: "Common.Secrets"));
 
         SecretManagerStatus result = SecretManagerEvaluator.Evaluate(contract, evaluation);
 
@@ -60,7 +74,7 @@ public sealed class SecretManagerEvaluatorTests
 
         SecretManagerStatus result = SecretManagerEvaluator.Evaluate(contract, evaluation);
 
-        Assert.Equal(SecretProviderKind.None, result.Provider);
+        Assert.Equal("No secrets", result.ProviderName);
         Assert.False(result.HasSecrets);
         Assert.Equal(0, result.IssueCount);
     }
@@ -69,9 +83,9 @@ public sealed class SecretManagerEvaluatorTests
     public void Rejects_non_http_provider_console_urls()
     {
         var contract = Contract(
-            new SecretProviderDeclaration("OpenBao", "javascript:alert(1)", "Healthy", "Valid"),
-            new ConfigurationRequirement("db", "Database", ConfigurationRequirementKind.Secret, true, "Database credential", IsConfigured: true, EffectiveSource: "OpenBao"));
-        var evaluation = Evaluation(new RequirementEvaluation("db", "Database", true, ConfigurationState.Configured, "Configured.", EffectiveSource: "OpenBao"));
+            new SecretProviderDeclaration("AnyProvider", "javascript:alert(1)", "Healthy", "Valid"),
+            new ConfigurationRequirement("db", "Database", ConfigurationRequirementKind.Secret, true, "Database credential", IsConfigured: true, EffectiveSource: "Common.Secrets"));
+        var evaluation = Evaluation(new RequirementEvaluation("db", "Database", true, ConfigurationState.Configured, "Configured.", EffectiveSource: "Common.Secrets"));
 
         SecretManagerStatus result = SecretManagerEvaluator.Evaluate(contract, evaluation);
 
@@ -83,9 +97,9 @@ public sealed class SecretManagerEvaluatorTests
     public void Reports_unverified_published_credential_state_as_issue()
     {
         var contract = Contract(
-            new SecretProviderDeclaration("OpenBao", "https://openbao.example:8200", "Healthy", "Invalid"),
-            new ConfigurationRequirement("db", "Database", ConfigurationRequirementKind.Secret, true, "Database credential", IsConfigured: true, EffectiveSource: "OpenBao"));
-        var evaluation = Evaluation(new RequirementEvaluation("db", "Database", true, ConfigurationState.Configured, "Configured.", EffectiveSource: "OpenBao"));
+            new SecretProviderDeclaration("AnyProvider", "https://secrets.example", "Healthy", "Invalid"),
+            new ConfigurationRequirement("db", "Database", ConfigurationRequirementKind.Secret, true, "Database credential", IsConfigured: true, EffectiveSource: "Common.Secrets"));
+        var evaluation = Evaluation(new RequirementEvaluation("db", "Database", true, ConfigurationState.Configured, "Configured.", EffectiveSource: "Common.Secrets"));
 
         SecretManagerStatus result = SecretManagerEvaluator.Evaluate(contract, evaluation);
 
