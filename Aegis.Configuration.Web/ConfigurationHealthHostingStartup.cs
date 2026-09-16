@@ -32,24 +32,10 @@ internal sealed class ConfigurationHealthAssessmentSource(
             // Reading the directory proves the registry can enumerate its backing store.
             _ = Directory.EnumerateFiles(contractDirectory).Take(1).ToArray();
 
-            // Registration requires write access. Probe with a temporary file and remove it immediately.
+            // Registration requires write/delete access. Probe with a temporary file and remove it immediately.
             string probePath = Path.Combine(contractDirectory, $".aegis-health-{Guid.NewGuid():N}.tmp");
-            try
-            {
-                await File.WriteAllTextAsync(probePath, "health", cancellationToken);
-            }
-            finally
-            {
-                try
-                {
-                    if (File.Exists(probePath)) File.Delete(probePath);
-                }
-                catch
-                {
-                    // If cleanup itself fails, the outer health result below will still reflect the
-                    // original store operation. Cleanup failure must not expose paths or credentials.
-                }
-            }
+            await File.WriteAllTextAsync(probePath, "health", cancellationToken);
+            File.Delete(probePath);
 
             return AegisHealthAssessment.Healthy("Configuration contract store is readable and writable.");
         }
