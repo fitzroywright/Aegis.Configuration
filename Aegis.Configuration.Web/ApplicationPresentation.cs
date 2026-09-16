@@ -76,7 +76,7 @@ internal static class ApplicationPresentation
     {
         RequirementEvaluation[] rows = requirements.ToArray();
         if (rows.Length == 0) return "<div class='empty'>None</div>";
-        return "<div class='presentation-table'><table><thead><tr><th>Requirement</th><th>Status</th><th>Source</th><th>Value</th></tr></thead><tbody>" +
+        return "<div class='presentation-table'><table><thead><tr><th>Requirement</th><th>Status</th><th>Commissioning</th><th>Source</th><th>Value</th></tr></thead><tbody>" +
                string.Join("", rows.Select(RenderEvaluationRow)) + "</tbody></table></div>";
     }
 
@@ -85,15 +85,16 @@ internal static class ApplicationPresentation
         string state = r.State.ToString();
         string css = r.State is ConfigurationState.Configured or ConfigurationState.Default ? "good" : "warn";
         string value = r.Sensitive ? "Protected / not displayed" : E(r.SafeDisplayValue ?? r.DefaultValue);
-        return $"<tr><td><b>{E(r.DisplayName)}</b><small>{E(r.Purpose ?? r.Message)}</small></td><td><span class='status {css}'>{E(state)}</span></td><td>{E(r.EffectiveSource)}</td><td><code>{value}</code></td></tr>";
+        string commissioning = string.IsNullOrWhiteSpace(r.VerificationStatus) ? r.Message : r.VerificationStatus;
+        return $"<tr><td><b>{E(r.DisplayName)}</b><small>{E(r.Purpose)}</small></td><td><span class='status {css}'>{E(state)}</span></td><td><small>{E(commissioning)}</small></td><td>{E(r.EffectiveSource)}</td><td><code>{value}</code></td></tr>";
     }
 
     private static string RenderContractRequirements(IEnumerable<ConfigurationRequirement> requirements)
     {
         ConfigurationRequirement[] rows = requirements.ToArray();
         if (rows.Length == 0) return "<div class='empty'>None</div>";
-        return "<div class='presentation-table'><table><thead><tr><th>Requirement</th><th>Kind</th><th>Key / Secret</th><th>Declared State</th></tr></thead><tbody>" +
-               string.Join("", rows.Select(r => $"<tr><td><b>{E(r.DisplayName)}</b><small>{E(r.Purpose)}</small></td><td>{E(r.Kind.ToString())}</td><td><code>{E(r.Sensitive ? (r.SecretName ?? r.ConfigurationKey) : (r.ConfigurationKey ?? r.SecretName))}</code></td><td>{E(r.ConfigurationState ?? (r.IsConfigured == true ? "Configured" : r.IsConfigured == false ? "Missing" : "Unknown"))}</td></tr>")) +
+        return "<div class='presentation-table'><table><thead><tr><th>Requirement</th><th>Kind</th><th>Key / Secret</th><th>Declared State</th><th>Commissioning</th></tr></thead><tbody>" +
+               string.Join("", rows.Select(r => $"<tr><td><b>{E(r.DisplayName)}</b><small>{E(r.Purpose)}</small></td><td>{E(r.Kind.ToString())}</td><td><code>{E(r.Sensitive ? (r.SecretName ?? r.ConfigurationKey) : (r.ConfigurationKey ?? r.SecretName))}</code></td><td>{E(r.ConfigurationState ?? (r.IsConfigured == true ? "Configured" : r.IsConfigured == false ? "Missing" : "Unknown"))}</td><td><small>{E(r.VerificationStatus)}</small></td></tr>")) +
                "</tbody></table></div>";
     }
 
@@ -128,6 +129,6 @@ internal static class ApplicationPresentation
     private static string E(string? value) => HtmlEncoder.Default.Encode(value ?? "—");
 
     private const string PageCss = """
-.presentation-head{padding:16px;margin:14px 0}.presentation-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}.presentation-panel{padding:16px;margin:14px 0;min-width:0}.presentation-grid .presentation-panel{margin:0}.presentation-panel h2{margin-top:0}.presentation-facts{grid-template-columns:repeat(4,minmax(0,1fr));gap:0}.presentation-facts b{overflow-wrap:anywhere}.presentation-tabs{margin-top:12px}.presentation-table{overflow:auto;border:1px solid #153f5c;border-radius:6px}.presentation-table table{min-width:720px}.presentation-table td{white-space:normal;vertical-align:top}.presentation-table code{color:#80d5ff;overflow-wrap:anywhere}.raw-section{padding:16px;margin:14px 0}.raw-section summary{cursor:pointer;color:#7dcaff;font-weight:800;font-size:15px}.raw-box{display:block;width:100%;max-width:100%;max-height:520px;overflow:auto;white-space:pre;font:12px/1.5 Consolas,'Courier New',monospace;background:#000b13;border:1px solid #275b7c;border-radius:6px;padding:16px;color:#cfe8fa;margin-top:12px}@media(max-width:1000px){.presentation-grid{grid-template-columns:1fr}.presentation-facts{grid-template-columns:1fr 1fr}}@media(max-width:650px){.presentation-facts{grid-template-columns:1fr}}
+.presentation-head{padding:16px;margin:14px 0}.presentation-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}.presentation-panel{padding:16px;margin:14px 0;min-width:0}.presentation-grid .presentation-panel{margin:0}.presentation-panel h2{margin-top:0}.presentation-facts{grid-template-columns:repeat(4,minmax(0,1fr));gap:0}.presentation-facts b{overflow-wrap:anywhere}.presentation-tabs{margin-top:12px}.presentation-table{overflow:auto;border:1px solid #153f5c;border-radius:6px}.presentation-table table{min-width:920px}.presentation-table td{white-space:normal;vertical-align:top}.presentation-table code{color:#80d5ff;overflow-wrap:anywhere}.raw-section{padding:16px;margin:14px 0}.raw-section summary{cursor:pointer;color:#7dcaff;font-weight:800;font-size:15px}.raw-box{display:block;width:100%;max-width:100%;max-height:520px;overflow:auto;white-space:pre;font:12px/1.5 Consolas,'Courier New',monospace;background:#000b13;border:1px solid #275b7c;border-radius:6px;padding:16px;color:#cfe8fa;margin-top:12px}@media(max-width:1000px){.presentation-grid{grid-template-columns:1fr}.presentation-facts{grid-template-columns:1fr 1fr}}@media(max-width:650px){.presentation-facts{grid-template-columns:1fr}}
 """;
 }
