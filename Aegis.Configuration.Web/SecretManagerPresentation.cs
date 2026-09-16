@@ -19,9 +19,6 @@ internal static class SecretManagerPresentation
         string console = status.CanOpenProviderConsole
             ? $"<a class='primary' href='{E(status.ManagementUrl)}' target='_blank' rel='noopener'>Open Provider Console</a>"
             : "<span class='disabled-action'>Provider console URL not declared or not HTTP(S)</span>";
-        string test = status.CanTestConnection
-            ? $"<a href='/applications/{appId}/secrets/test'>Test Connection</a>"
-            : "<span class='disabled-action'>Connection test unavailable for this declaration</span>";
         string credentialAction = status.HasCredentialStatus
             ? "<a href='#credentials'>Validate Credentials</a>"
             : "<span class='disabled-action'>Credential validation not published by application</span>";
@@ -30,20 +27,20 @@ internal static class SecretManagerPresentation
             : $"<div class='probe-result {(testSucceeded == true ? "good" : "warn")}'><b>{(testSucceeded == true ? "Connection test succeeded" : "Connection test failed")}</b><span>{E(testMessage)}</span></div>";
         string credentialClass = status.CredentialsVerified ? "good" : "warn";
         string credentialSummary = status.HasCredentialStatus
-            ? $"<div class='probe-result {credentialClass}'><b>{(status.CredentialsVerified ? "Published credential validation is healthy" : "Published credential validation reports an issue")}</b><span>{E(status.CredentialStatus)}</span><small>This status comes from the application's own configuration contract. Configuration does not retrieve or display the credential value.</small></div>"
+            ? $"<div class='probe-result {credentialClass}'><b>{(status.CredentialsVerified ? "Published credential validation is healthy" : "Published credential validation reports an issue")}</b><span>{E(status.CredentialStatus)}</span><small>This status comes from the application's Common.Secrets declaration. Configuration does not retrieve or display the credential value.</small></div>"
             : "<div class='empty'>The application has not published a credential verification status, so Configuration cannot truthfully claim the credentials are valid.</div>";
         string setup = RenderSetup(status, configuredSecrets, requiredSecrets);
 
         string content = $"""
 <style>{Css}</style>
-<section class='page-head'><div><h1>{E(contract.DisplayName)} Secrets</h1><p>Provider-aware configuration assistance. Secret values are never stored or displayed here.</p></div></section>
+<section class='page-head'><div><h1>{E(contract.DisplayName)} Secrets</h1><p>Common.Secrets capability assistance. Secret values are never stored or displayed here.</p></div></section>
 <section class='panel secret-summary'>
-  <div class='detail-head'><span class='bigicon'>{E(status.Glyph)}</span><div><h2>{E(status.ProviderName)}</h2><small>Declared or inferred secret provider for {E(contract.ApplicationId)}</small></div><span class='status {E(status.CssClass)}'>{E(status.IssueLabel)}</span></div>
+  <div class='detail-head'><span class='bigicon'>🔐</span><div><h2>{E(status.ProviderName)}</h2><small>Provider reported through Common.Secrets for {E(contract.ApplicationId)}</small></div><span class='status {(status.IsHealthy ? "good" : "warn")}'>{E(status.IssueLabel)}</span></div>
   <div class='facts'><div><small>PROVIDER</small><b>{E(status.ProviderName)}</b></div><div><small>CONNECTION</small><b>{E(status.ConnectionStatus)}</b></div><div><small>CREDENTIALS</small><b>{E(status.CredentialStatus)}</b></div><div><small>REQUIRED SECRETS</small><b>{requiredSecrets}</b></div></div>
-  <div class='secret-actions'><a href='/applications/{appId}'>Back to Configuration</a>{test}{credentialAction}{console}</div>
+  <div class='secret-actions'><a href='/applications/{appId}'>Back to Configuration</a>{credentialAction}{console}</div>
   {result}
 </section>
-<section class='panel secret-panel'><h2>Configure</h2><p>Use this checklist to fix the provider setup already declared by the application. Configuration does not change the provider, store secret values, repair machine identity, or perform Secret Zero bootstrap.</p>{setup}</section>
+<section class='panel secret-panel'><h2>Configure</h2><p>Use this checklist to fix the provider setup reported through Common.Secrets. Configuration does not change the provider, store secret values, repair machine identity, or perform Secret Zero bootstrap.</p>{setup}</section>
 <section id='credentials' class='panel secret-panel'><h2>Credential Validation</h2>{credentialSummary}</section>
 <section id='issues' class='panel secret-panel'><h2>Issues</h2>{issues}</section>
 <section class='panel secret-panel'><h2>Declared Secret Requirements</h2>{requirements}</section>
@@ -69,7 +66,7 @@ internal static class SecretManagerPresentation
   <div class='setup-step'><i class='{credentialState}'>{(credentialState == "ok" ? "✓" : "!")}</i><span><b>3. Existing credentials</b><small>{credentialText}</small></span></div>
   <div class='setup-step'><i class='{requirementsState}'>{(requirementsState == "ok" ? "✓" : "!")}</i><span><b>4. Required secrets</b><small>{requirementsText}</small></span></div>
 </div>
-<div class='provider-guidance'>{ProviderGuidance(status.Provider)}</div>
+<div class='provider-guidance'><p><b>{E(status.ProviderName)}:</b> provider identity and safe management metadata are supplied through the Common.Secrets capability. Resolve missing requirements in the configured provider. Configuration does not contain provider-specific setup logic.</p></div>
 """;
     }
 
@@ -77,19 +74,8 @@ internal static class SecretManagerPresentation
     {
         if (string.IsNullOrWhiteSpace(value)) return false;
         string normalized = value.Trim().ToLowerInvariant();
-        return normalized is "verified" or "healthy" or "ok" or "success" or "available" or "reachable" or "valid" or "configured";
+        return normalized is "verified" or "healthy" or "ok" or "success" or "available" or "reachable" or "valid" or "configured" or "resolved";
     }
-
-    private static string ProviderGuidance(SecretProviderKind provider) => provider switch
-    {
-        SecretProviderKind.OpenBao => "<p><b>OpenBao:</b> confirm the published OpenBao URL, use Test Connection to verify the HTTP endpoint, review the application's published credential status, then resolve any missing secret requirements in OpenBao itself. Machine-identity repair and Secret Zero remain intentionally out of scope.</p>",
-        SecretProviderKind.Bitwarden => "<p><b>Bitwarden:</b> review the published provider and credential state, open the provider console when a management URL is available, and resolve missing declared secrets there. Configuration does not provision machine accounts or tokens.</p>",
-        SecretProviderKind.HashiCorpVault => "<p><b>HashiCorp Vault:</b> verify the published Vault URL, test the HTTP endpoint, review the application's credential status, then resolve missing declared secrets in Vault. Provider changes and bootstrap identity work are not performed here.</p>",
-        SecretProviderKind.Environment => "<p><b>Environment:</b> use the missing requirement list to identify environment variables the target process cannot currently resolve. Configuration reports the problem but does not write variables to the host.</p>",
-        SecretProviderKind.AppSettings => "<p><b>AppSettings:</b> use the requirement list to identify missing or unhealthy app settings. Configuration does not write secret values into application settings and continues to hide sensitive values.</p>",
-        SecretProviderKind.None => "<p>No secret provider is required by the current contract.</p>",
-        _ => "<p>The application declares secrets but the provider could not be identified. Publish an optional Secrets provider declaration or a recognizable effective source before provider-specific assistance can be offered.</p>"
-    };
 
     private static string E(string? value) => HtmlEncoder.Default.Encode(value ?? "—");
 
