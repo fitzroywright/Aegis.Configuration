@@ -85,7 +85,7 @@ public static class SecretManagerEvaluator
         return string.IsNullOrWhiteSpace(declared) ? "Unknown provider" : declared.Trim();
     }
 
-    internal static bool IsPositiveStatus(string value)
+    public static bool IsPositiveStatus(string value)
     {
         string normalized = value.Trim().ToLowerInvariant();
         return normalized is "verified" or "healthy" or "ok" or "success" or "available" or "reachable" or "valid" or "configured" or "resolved";
