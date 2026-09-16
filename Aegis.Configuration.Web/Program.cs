@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using Aegis.Configuration.Application;
 using Aegis.Configuration.Domain;
 using Aegis.Configuration.Infrastructure;
+using Common.Diagnostics;
 using Common.Secrets;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -131,7 +132,7 @@ app.MapGet("/api/report/{applicationId}", async (string applicationId, IConfigur
     return Results.Text(renderer.RenderMarkdown(snapshot), "text/markdown; charset=utf-8");
 });
 app.MapPost("/api/contracts/validate", (HttpContext context, ApplicationConfigurationContract contract, ContractValidator validator) => Has(context, "Configuration.Manage") ? Results.Ok(validator.Validate(contract)) : Results.Forbid());
-app.MapGet("/health", () => Results.Ok(new { status = "healthy", service = "Aegis.Configuration", displayName = "System Configuration" }));
+app.MapAegisHealth("Aegis.Configuration");
 app.Run();
 
 static bool Has(HttpContext c, string permission) => c.Items.TryGetValue("SuiteIdentity", out object? value) && value is SuiteIdentity i && i.Permissions.Contains(permission, StringComparer.OrdinalIgnoreCase);
