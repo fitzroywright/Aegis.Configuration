@@ -32,6 +32,39 @@ public sealed class ConfigurationEvaluatorTests
     }
 
     [Fact]
+    public async Task OptionalDisabledCapabilityIsExplicitlyDisabledAndDoesNotBlockCompleteness()
+    {
+        ApplicationConfigurationContract contract = new("app", "App", "1.0", [
+            new("teams", "Teams", ConfigurationRequirementKind.ExternalService, false, "Optional Teams delivery",
+                IsConfigured: false,
+                ConfigurationState: "Disabled",
+                VerificationStatus: "NOT REQUIRED")
+        ]);
+
+        ConfigurationEvaluation result = await new ConfigurationEvaluator().EvaluateAsync(contract, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsComplete);
+        RequirementEvaluation requirement = result.Requirements.Single();
+        Assert.Equal(ConfigurationState.Disabled, requirement.State);
+        Assert.Equal("NOT REQUIRED", requirement.VerificationStatus);
+    }
+
+    [Fact]
+    public async Task RequiredCapabilityCannotHideBehindDisabledState()
+    {
+        ApplicationConfigurationContract contract = new("app", "App", "1.0", [
+            new("oidc", "OIDC", ConfigurationRequirementKind.ExternalService, true, "Required authentication",
+                IsConfigured: false,
+                ConfigurationState: "Disabled")
+        ]);
+
+        ConfigurationEvaluation result = await new ConfigurationEvaluator().EvaluateAsync(contract, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsComplete);
+        Assert.Equal(ConfigurationState.Missing, result.Requirements.Single().State);
+    }
+
+    [Fact]
     public async Task ApplicationReportedConfiguredIsCompleteWithoutRuntimeProbe()
     {
         ApplicationConfigurationContract contract = new("app", "App", "1.0", [
