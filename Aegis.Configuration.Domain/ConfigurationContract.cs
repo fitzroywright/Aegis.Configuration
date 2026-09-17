@@ -1,7 +1,7 @@
 namespace Aegis.Configuration.Domain;
 
 public enum ConfigurationRequirementKind { Configuration, Secret, ExternalService }
-public enum ConfigurationState { OptionalNotConfigured, Missing, Configured, Default, Unknown }
+public enum ConfigurationState { OptionalNotConfigured, Disabled, Missing, Configured, Default, Unknown }
 
 public sealed record ApplicationConfigurationContract(
     string ApplicationId,
