@@ -15,6 +15,8 @@ builder.Services.AddSuiteSecurity();
 builder.Services.AddHttpClient("operations-registration", client => client.Timeout = TimeSpan.FromSeconds(10));
 builder.Services.AddSingleton<OperationsRegistrationAuthority>();
 builder.Services.AddSingleton<LifecycleRegistrationAuthority>();
+builder.Services.AddSingleton<RegistrationReconciliationState>();
+builder.Services.AddHostedService<LifecycleRegistrationReconciliationService>();
 builder.Services.AddHostedService<ConfigurationRegistrationPublisher>();
 DirectoryContractStore contractStore = new(contractDirectory);
 builder.Services.AddSingleton(contractStore);
@@ -29,6 +31,11 @@ WebApplication app = builder.Build();
 app.UseSuiteSecurity();
 app.MapSuiteSecurity();
 app.MapLifecycleRegistration();
+app.MapGet("/api/registration/reconciliation", (HttpContext context, RegistrationReconciliationState state) =>
+{
+    if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+    return Results.Ok(state.Get());
+});
 
 app.MapGet("/", async (IConfigurationContractStore store, ConfigurationEvaluator evaluator, CancellationToken ct) =>
 {
