@@ -734,7 +734,7 @@ internal sealed class LifecycleRegistrationAuthority
 
     public async Task<LifecycleRegistrationRecord?> ResolveIdentityConflictAsync(
         string registrationId,
-        bool acceptPresentedInstallation,
+        bool retireExistingIdentity,
         string actor,
         string? sourceIp,
         string? userAgent,
@@ -751,8 +751,8 @@ internal sealed class LifecycleRegistrationAuthority
                 throw new InvalidOperationException("Registration is not in identity conflict.");
 
             DateTimeOffset now = DateTimeOffset.UtcNow;
-            LifecycleRegistrationState next = acceptPresentedInstallation
-                ? LifecycleRegistrationState.RecoveryPending
+            LifecycleRegistrationState next = retireExistingIdentity
+                ? LifecycleRegistrationState.Purged
                 : LifecycleRegistrationState.Revoked;
 
             LifecycleRegistrationRecord resolved = record with
@@ -764,7 +764,7 @@ internal sealed class LifecycleRegistrationAuthority
                 RevokedAtUtc = next == LifecycleRegistrationState.Revoked ? now : record.RevokedAtUtc,
                 UpdatedAtUtc = now,
                 Audit = [.. record.Audit, Audit(
-                    acceptPresentedInstallation ? "IdentityConflictAccepted" : "IdentityConflictRejected",
+                    retireExistingIdentity ? "IdentityConflictExistingIdentityRetired" : "IdentityConflictRequestRejected",
                     actor, sourceIp, userAgent, reason, correlationId, record.State, next)]
             };
             await SaveUnsafeAsync(resolved, ct);
