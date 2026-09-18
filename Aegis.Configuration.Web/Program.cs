@@ -48,6 +48,30 @@ app.UseRateLimiter();
 app.UseSuiteSecurity();
 app.MapSuiteSecurity();
 app.MapLifecycleRegistration();
+app.MapGet("/api/registration/summary", async (HttpContext context, LifecycleRegistrationAuthority authority, CancellationToken ct) =>
+{
+    if (!Has(context, "Configuration.View")) return Results.Forbid();
+
+    IReadOnlyList<LifecycleRegistrationRecord> records = await authority.ListAsync(ct);
+    return Results.Ok(new
+    {
+        total = records.Count,
+        pending = records.Count(x => x.State is LifecycleRegistrationState.Pending or LifecycleRegistrationState.Approved),
+        registered = records.Count(x => x.State == LifecycleRegistrationState.Registered),
+        recoveryPending = records.Count(x => x.State is LifecycleRegistrationState.RecoveryPending or LifecycleRegistrationState.RecoveryApproved),
+        conflicts = records.Count(x => x.State == LifecycleRegistrationState.IdentityConflict),
+        revoked = records.Count(x => x.State == LifecycleRegistrationState.Revoked),
+        rejected = records.Count(x => x.State == LifecycleRegistrationState.Rejected),
+        attention = records.Count(x => x.State is
+            LifecycleRegistrationState.RecoveryPending or
+            LifecycleRegistrationState.RecoveryApproved or
+            LifecycleRegistrationState.IdentityConflict or
+            LifecycleRegistrationState.Revoked or
+            LifecycleRegistrationState.Rejected),
+        checkedAtUtc = DateTimeOffset.UtcNow
+    });
+});
+
 app.MapGet("/api/registration/reconciliation", (HttpContext context, RegistrationReconciliationState state) =>
 {
     if (!Has(context, "Configuration.Manage")) return Results.Forbid();
