@@ -1,3 +1,4 @@
+using Npgsql;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Text.Encodings.Web;
@@ -44,6 +45,35 @@ builder.Services.AddSingleton<CommissioningService>();
 builder.Services.AddSingleton<CommissioningReportRenderer>();
 builder.Services.AddSingleton<ContractValidator>();
 WebApplication app = builder.Build();
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (Exception ex) when (
+        context.Request.Path.StartsWithSegments("/api/registration") &&
+        ex is NpgsqlException or TimeoutException)
+    {
+        app.Logger.LogError(
+            ex,
+            "Registration authority persistence is unavailable for {Path}.",
+            context.Request.Path);
+
+        if (!context.Response.HasStarted)
+        {
+            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            context.Response.ContentType = "application/problem+json";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                type = "https://ffpja.org/problems/registration-authority-unavailable",
+                title = "Registration authority unavailable",
+                status = StatusCodes.Status503ServiceUnavailable,
+                detail = "Registration persistence is temporarily unavailable. No registration state change was reported as successful."
+            });
+        }
+    }
+});
 app.UseRateLimiter();
 app.UseSuiteSecurity();
 app.MapSuiteSecurity();
