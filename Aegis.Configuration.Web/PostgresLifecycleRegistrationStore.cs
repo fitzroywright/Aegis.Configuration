@@ -28,7 +28,6 @@ internal sealed class PostgresLifecycleRegistrationStore
         await EnsureInitializedAsync(ct);
         await using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync(ct);
-        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(ct);
 
         await using var command = new NpgsqlCommand(
             """
@@ -84,6 +83,7 @@ internal sealed class PostgresLifecycleRegistrationStore
         await EnsureInitializedAsync(ct);
         await using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync(ct);
+        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(ct);
 
         await using var command = new NpgsqlCommand(
             """
