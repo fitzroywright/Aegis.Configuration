@@ -153,9 +153,15 @@ public sealed class DirectoryContractStore(string directoryPath) : IConfiguratio
         foreach (string path in Directory.EnumerateFiles(directoryPath, "*.configuration-contract.json", SearchOption.TopDirectoryOnly))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await using FileStream stream = File.OpenRead(path);
-            ApplicationConfigurationContract? contract =
-                await JsonSerializer.DeserializeAsync<ApplicationConfigurationContract>(stream, jsonOptions, cancellationToken);
+            ApplicationConfigurationContract? contract;
+            await using (FileStream stream = File.OpenRead(path))
+            {
+                contract = await JsonSerializer.DeserializeAsync<ApplicationConfigurationContract>(
+                    stream,
+                    jsonOptions,
+                    cancellationToken);
+            }
+
             if (contract is null || IsRetiredPublisher(contract.ApplicationId) || active.Contains(contract.ApplicationId))
                 continue;
 
