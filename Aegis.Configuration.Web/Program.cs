@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json.Serialization;
 using Aegis.Configuration.Application;
@@ -12,9 +10,11 @@ WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 string contractDirectory = builder.Configuration["AegisConfiguration:ContractDirectory"] ?? "/var/lib/aegis/configuration/contracts";
 string instructionDirectory = builder.Configuration["AegisConfiguration:InstructionDirectory"] ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "instruction-packs"));
-string bootstrapCredentialFile = builder.Configuration["AegisConfiguration:BootstrapCredentialFile"] ?? "/var/lib/aegis/configuration/bootstrap-credentials.json";
 builder.Services.AddCommonSecrets(builder.Configuration);
 builder.Services.AddSuiteSecurity();
+builder.Services.AddHttpClient("operations-registration", client => client.Timeout = TimeSpan.FromSeconds(10));
+builder.Services.AddSingleton<OperationsRegistrationAuthority>();
+builder.Services.AddHostedService<ConfigurationRegistrationPublisher>();
 DirectoryContractStore contractStore = new(contractDirectory);
 builder.Services.AddSingleton(contractStore);
 builder.Services.AddSingleton<IConfigurationContractStore>(contractStore);
@@ -24,7 +24,6 @@ builder.Services.AddSingleton<ConfigurationEvaluator>();
 builder.Services.AddSingleton<CommissioningService>();
 builder.Services.AddSingleton<CommissioningReportRenderer>();
 builder.Services.AddSingleton<ContractValidator>();
-builder.Services.AddSingleton(new BootstrapCredentialStore(bootstrapCredentialFile));
 WebApplication app = builder.Build();
 app.UseSuiteSecurity();
 app.MapSuiteSecurity();
@@ -104,27 +103,7 @@ app.MapGet("/runbooks/{applicationId}", async (string applicationId, IConfigurat
     return Html(ConfigurationShell.Render("Runbook", $"<section class='page-head'><div><h1>{E(contract.DisplayName)} Runbook</h1><p>Commissioning guidance for {E(contract.ApplicationId)}</p></div></section><section class='panel'><h2>Configuration Contract</h2><p>Version {E(contract.Version)} · Site {E(contract.SiteId)} · Instance {E(contract.InstanceId)}</p><a class='primary' href='/applications/{Uri.EscapeDataString(contract.ApplicationId)}'>Back to application</a></section>", "runbooks"));
 });
 
-app.MapGet("/api/bootstrap/credentials", async (HttpContext context, BootstrapCredentialStore credentials, CancellationToken ct) =>
-{
-    if (!Has(context, "Configuration.Manage")) return Results.StatusCode(StatusCodes.Status403Forbidden);
-    return Results.Ok(await credentials.ListAsync(ct));
-});
-
-app.MapPost("/api/bootstrap/credentials", async (HttpContext context, BootstrapCredentialCreateRequest request, BootstrapCredentialStore credentials, CancellationToken ct) =>
-{
-    if (!Has(context, "Configuration.Manage")) return Results.StatusCode(StatusCodes.Status403Forbidden);
-    BootstrapCredentialCreated created = await credentials.CreateAsync(request, ct);
-    context.Response.Headers.CacheControl = "no-store";
-    return Results.Ok(created);
-});
-
-app.MapPost("/api/bootstrap/credentials/{id}/revoke", async (HttpContext context, string id, BootstrapCredentialStore credentials, CancellationToken ct) =>
-{
-    if (!Has(context, "Configuration.Manage")) return Results.StatusCode(StatusCodes.Status403Forbidden);
-    return await credentials.RevokeAsync(id, ct) ? Results.NoContent() : Results.NotFound();
-});
-
-app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationConfigurationContract contract, IConfigurationContractRegistrationStore store, ContractValidator validator, BootstrapCredentialStore credentials, ILoggerFactory loggerFactory, CancellationToken ct) =>
+app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationConfigurationContract contract, IConfigurationContractRegistrationStore store, ContractValidator validator, OperationsRegistrationAuthority authority, ILoggerFactory loggerFactory, CancellationToken ct) =>
 {
     ILogger registrationLogger = loggerFactory.CreateLogger("Aegis.Configuration.Registration");
     string attemptId = context.Request.Headers["X-Aegis-Registration-Attempt-Id"].ToString();
@@ -137,13 +116,12 @@ app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationCo
         ["Stage"] = "ContractRegistration"
     });
     registrationLogger.LogInformation("Configuration contract registration request received.");
-    string supplied = context.Request.Headers["X-Aegis-Registration-Key"].ToString();
-    if (!await credentials.ValidateAsync(supplied, ct))
+    if (!await authority.ValidateOperationsAsync(context.Request, ct))
     {
-        registrationLogger.LogWarning("Configuration contract registration rejected because the supplied Operations bootstrap credential is invalid, expired, or revoked.");
+        registrationLogger.LogWarning("Configuration contract registration rejected because the Operations registration credential is invalid or unavailable.");
         return Results.Unauthorized();
     }
-    registrationLogger.LogInformation("Configuration bootstrap credential accepted.");
+    registrationLogger.LogInformation("Operations registration credential accepted.");
     var validation = validator.Validate(contract);
     if (!validation.IsValid)
     {
@@ -155,31 +133,31 @@ app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationCo
     return Results.Ok(new { registered = true, registration.ApplicationId, registration.Version, registration.Changed, registration.LastRegisteredAtUtc });
 });
 
-app.MapPost("/api/contracts/{applicationId}/retire", async (HttpContext context, string applicationId, DirectoryContractStore store, BootstrapCredentialStore credentials, CancellationToken ct) =>
+app.MapPost("/api/contracts/{applicationId}/retire", async (HttpContext context, string applicationId, DirectoryContractStore store, OperationsRegistrationAuthority authority, CancellationToken ct) =>
 {
-    if (!await credentials.ValidateAsync(context.Request.Headers["X-Aegis-Registration-Key"].ToString(), ct)) return Results.Unauthorized();
+    if (!await authority.ValidateOperationsAsync(context.Request, ct)) return Results.Unauthorized();
     string reason = context.Request.Query["reason"].ToString();
     bool retired = await store.RetireAsync(applicationId, string.IsNullOrWhiteSpace(reason) ? "revoked" : reason, ct);
     return retired ? Results.Ok(new { applicationId, retired = true }) : Results.NotFound();
 });
 
-app.MapDelete("/api/contracts/{applicationId}", async (HttpContext context, string applicationId, DirectoryContractStore store, BootstrapCredentialStore credentials, CancellationToken ct) =>
+app.MapDelete("/api/contracts/{applicationId}", async (HttpContext context, string applicationId, DirectoryContractStore store, OperationsRegistrationAuthority authority, CancellationToken ct) =>
 {
-    if (!await credentials.ValidateAsync(context.Request.Headers["X-Aegis-Registration-Key"].ToString(), ct)) return Results.Unauthorized();
+    if (!await authority.ValidateOperationsAsync(context.Request, ct)) return Results.Unauthorized();
     bool purged = await store.PurgeAsync(applicationId, ct);
     return purged ? Results.NoContent() : Results.NotFound();
 });
 
-app.MapPost("/api/contracts/reconcile", async (HttpContext context, string[] activeApplicationIds, DirectoryContractStore store, BootstrapCredentialStore credentials, CancellationToken ct) =>
+app.MapPost("/api/contracts/reconcile", async (HttpContext context, string[] activeApplicationIds, DirectoryContractStore store, OperationsRegistrationAuthority authority, CancellationToken ct) =>
 {
-    if (!await credentials.ValidateAsync(context.Request.Headers["X-Aegis-Registration-Key"].ToString(), ct)) return Results.Unauthorized();
+    if (!await authority.ValidateOperationsAsync(context.Request, ct)) return Results.Unauthorized();
     IReadOnlyList<string> retired = await store.ReconcileAsync(activeApplicationIds, ct);
     return Results.Ok(new { active = activeApplicationIds.Length, retired });
 });
 
-app.MapGet("/api/contracts/discovery", async (HttpContext context, IConfigurationContractStore store, BootstrapCredentialStore credentials, CancellationToken ct) =>
+app.MapGet("/api/contracts/discovery", async (HttpContext context, IConfigurationContractStore store, OperationsRegistrationAuthority authority, CancellationToken ct) =>
 {
-    if (!await credentials.ValidateAsync(context.Request.Headers["X-Aegis-Registration-Key"].ToString(), ct)) return Results.Unauthorized();
+    if (!await authority.ValidateOperationsAsync(context.Request, ct)) return Results.Unauthorized();
     IReadOnlyList<ApplicationConfigurationContract> contracts = await store.LoadAllAsync(ct);
     context.Response.Headers.CacheControl = "no-store";
     return Results.Ok(contracts);
@@ -201,12 +179,6 @@ app.Run();
 static bool Has(HttpContext c, string permission) => c.Items.TryGetValue("SuiteIdentity", out object? value) && value is SuiteIdentity i && i.Permissions.Contains(permission, StringComparer.OrdinalIgnoreCase);
 static IResult Html(string html) => Results.Content(html, "text/html; charset=utf-8");
 static string E(string? value) => HtmlEncoder.Default.Encode(value ?? "—");
-static bool FixedEquals(string expected, string actual)
-{
-    byte[] a = SHA256.HashData(Encoding.UTF8.GetBytes(expected));
-    byte[] b = SHA256.HashData(Encoding.UTF8.GetBytes(actual));
-    return CryptographicOperations.FixedTimeEquals(a, b);
-}
 static string Registered(DateTimeOffset? value, string format) => value.HasValue ? value.Value.ToString(format) + " UTC" : "Never";
 
 static string RenderDashboard(List<(ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation)> rows, int? selectedIndex, int orphanedContracts = 0)
@@ -217,7 +189,7 @@ static string RenderDashboard(List<(ApplicationConfigurationContract Contract, C
     int selected = selectedIndex ?? (rows.Count > 0 ? 0 : -1);
     string detail = selected < 0 ? "<section class='detail'><div class='empty'>Applications appear here automatically after they register with System Configuration.</div></section>" : RenderDetails(rows[selected]);
     string activity = rows.Count == 0 ? "<div class='empty'>No registration activity.</div>" : string.Join("", rows.OrderByDescending(x => x.Contract.LastRegisteredAtUtc).Take(4).Select(x => $"<div class='activity-row'><i></i><span><b>{E(x.Contract.DisplayName)}</b><small>Configuration contract registered</small></span><time>{Registered(x.Contract.LastRegisteredAtUtc, "MMM d, HH:mm")}</time></div>"));
-    string content = $"<style>{SecretManagerStyles()}</style><section class='page-head'><div><h1>Applications</h1><p>All registered applications and their configuration status</p></div></section><section class='toolbar'><input id='search' placeholder='⌕  Search applications...'><select id='statusFilter'><option value=''>All Status</option><option>Configured</option><option>Not Configured</option></select><button onclick='location.reload()'>↻</button><button class='primary' onclick='document.getElementById(\"registrationInfoDialog\").showModal()'>ⓘ Application Registration</button></section><section class='metrics'><div class='metric'><span>▦</span><b>{rows.Count}</b><small>Total Applications</small></div><div class='metric green'><span>✓</span><b>{configured}</b><small>Configured</small></div><div class='metric amber'><span>!</span><b>{rows.Count - configured}</b><small>Not Configured</small></div><div class='metric amber'><span>⚠</span><b>{orphanedContracts}</b><small>Orphaned Contracts</small></div><div class='metric'><span>≡</span><b>{requirements}</b><small>Total Requirements</small></div></section><section class='workspace'><div><section class='panel table-panel'><table id='apps'><thead><tr><th>Application</th><th>Version</th><th>Site / Instance</th><th>Configuration</th><th>Secrets</th><th>Required</th><th>Optional</th><th>Last Updated</th><th></th></tr></thead><tbody>{tableRows}</tbody></table></section><section class='lower'><div class='panel'><h3>◴ Recent Activity</h3>{activity}</div><div class='panel'><h3>⌘ Quick Links</h3><div class='quick'><a href='/runbooks'>▤ <span><b>Configuration Runbooks</b><small>Commissioning and recovery guidance</small></span></a><a href='/api/contracts'>◇ <span><b>Contract API</b><small>Machine-readable registered contracts</small></span></a></div></div></section></div>{detail}</section><dialog id='registrationInfoDialog'><h2>Applications Register Automatically</h2><p>Applications publish their configuration requirements to System Configuration when they start. You do not manually add applications here.</p><p><b>Configuration Server</b><br><code id='configurationServerUrl'></code></p><p><b>Registration Endpoint</b><br><code id='registrationEndpointUrl'></code></p><p>Applications should normally configure <code>Aegis:Configuration:Url</code> with the Configuration Server address above.</p><p class='muted'>Registration is authenticated using the application's Configuration Registration Key. Secret values are never displayed here.</p><button onclick='this.closest(\"dialog\").close()'>Close</button></dialog>";
+    string content = $"<style>{SecretManagerStyles()}</style><section class='page-head'><div><h1>Applications</h1><p>All registered applications and their configuration status</p></div></section><section class='toolbar'><input id='search' placeholder='⌕  Search applications...'><select id='statusFilter'><option value=''>All Status</option><option>Configured</option><option>Not Configured</option></select><button onclick='location.reload()'>↻</button><button class='primary' onclick='document.getElementById(\"registrationInfoDialog\").showModal()'>ⓘ Application Registration</button></section><section class='metrics'><div class='metric'><span>▦</span><b>{rows.Count}</b><small>Total Applications</small></div><div class='metric green'><span>✓</span><b>{configured}</b><small>Configured</small></div><div class='metric amber'><span>!</span><b>{rows.Count - configured}</b><small>Not Configured</small></div><div class='metric amber'><span>⚠</span><b>{orphanedContracts}</b><small>Orphaned Contracts</small></div><div class='metric'><span>≡</span><b>{requirements}</b><small>Total Requirements</small></div></section><section class='workspace'><div><section class='panel table-panel'><table id='apps'><thead><tr><th>Application</th><th>Version</th><th>Site / Instance</th><th>Configuration</th><th>Secrets</th><th>Required</th><th>Optional</th><th>Last Updated</th><th></th></tr></thead><tbody>{tableRows}</tbody></table></section><section class='lower'><div class='panel'><h3>◴ Recent Activity</h3>{activity}</div><div class='panel'><h3>⌘ Quick Links</h3><div class='quick'><a href='/runbooks'>▤ <span><b>Configuration Runbooks</b><small>Commissioning and recovery guidance</small></span></a><a href='/api/contracts'>◇ <span><b>Contract API</b><small>Machine-readable registered contracts</small></span></a></div></div></section></div>{detail}</section><dialog id='registrationInfoDialog'><h2>Applications Register Automatically</h2><p>Applications publish their configuration requirements to System Configuration when they start. You do not manually add applications here.</p><p><b>Configuration Server</b><br><code id='configurationServerUrl'></code></p><p><b>Registration Endpoint</b><br><code id='registrationEndpointUrl'></code></p><p>Applications should normally configure <code>Aegis:Configuration:Url</code> with the Configuration Server address above.</p><p class='muted'>Registration is authenticated by Operations using the application's suite registration credential. Secret values are never displayed here.</p><button onclick='this.closest(\"dialog\").close()'>Close</button></dialog>";
     return ConfigurationShell.Render("Applications", content, "applications");
 }
 
