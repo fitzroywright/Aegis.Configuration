@@ -23,19 +23,17 @@ internal sealed class ConfigurationRegistrationPublisher(
             {
                 JsonObject contract = BuildContract(instanceId);
                 using HttpClient client = new();
-                var registration = new ApplicationRegistrationClient(
+                var registration = new ControlPlaneRegistrationClient(
                     client,
-                    new ApplicationRegistrationOptions(
+                    new ControlPlaneRegistrationOptions(
                         new Uri(operationsUrl, UriKind.Absolute),
                         ApplicationId,
                         instanceId,
-                        RegistrationCredentialResolver.EnvironmentVariableName,
-                        TimeSpan.FromSeconds(10),
-                        AutoProvisionControlPlane: true,
-                        CredentialFilePath: credentialFile),
+                        credentialFile,
+                        TimeSpan.FromSeconds(10)),
                     logger: logger);
 
-                ApplicationRegistrationStatus result = await registration.RegisterAsync(contract, stoppingToken);
+                ControlPlaneRegistrationStatus result = await registration.RegisterAsync(contract, stoppingToken);
                 if (result.IsRegistered)
                 {
                     logger.LogInformation(
