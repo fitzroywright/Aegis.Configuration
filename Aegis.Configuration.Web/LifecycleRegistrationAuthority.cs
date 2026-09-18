@@ -343,10 +343,24 @@ internal sealed class LifecycleRegistrationAuthority
                 return null;
             }
 
+            DateTimeOffset authenticatedAt = DateTimeOffset.UtcNow;
             LifecycleRegistrationRecord authenticated = record with
             {
-                LastAuthenticatedAtUtc = DateTimeOffset.UtcNow,
-                UpdatedAtUtc = DateTimeOffset.UtcNow
+                LastAuthenticatedAtUtc = authenticatedAt,
+                UpdatedAtUtc = authenticatedAt,
+                Audit =
+                [
+                    .. record.Audit,
+                    Audit(
+                        "Authenticated",
+                        "application-authentication",
+                        null,
+                        null,
+                        null,
+                        correlationId,
+                        record.State,
+                        LifecycleRegistrationState.Registered)
+                ]
             };
 
             await _store.SaveAsync(authenticated, ct);
@@ -738,6 +752,58 @@ internal sealed class LifecycleRegistrationAuthority
 
             await _store.SaveAsync(retired, ct);
             return retired;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+
+    public async Task<LifecycleRegistrationRecord?> RecordOperationalEventAsync(
+        string applicationId,
+        string instanceId,
+        string installationId,
+        string action,
+        string? reason,
+        string? correlationId,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(action))
+            throw new ArgumentException("Operational event action is required.", nameof(action));
+
+        await _gate.WaitAsync(ct);
+        try
+        {
+            LifecycleRegistrationRecord? record =
+                await FindActiveAsync(applicationId, instanceId, ct);
+
+            if (record is null ||
+                !string.Equals(record.InstallationId, installationId, StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            LifecycleRegistrationRecord updated = record with
+            {
+                UpdatedAtUtc = DateTimeOffset.UtcNow,
+                Audit =
+                [
+                    .. record.Audit,
+                    Audit(
+                        action.Trim(),
+                        applicationId,
+                        null,
+                        null,
+                        reason,
+                        correlationId,
+                        record.State,
+                        record.State)
+                ]
+            };
+
+            await _store.SaveAsync(updated, ct);
+            return updated;
         }
         finally
         {
