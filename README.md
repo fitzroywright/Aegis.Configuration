@@ -20,25 +20,25 @@ Its job is deliberately narrow: **tell an administrator what an application requ
 
 ## Contract self-registration
 
-Applications publish to:
+Applications register with **Aegis.Operations**, which is the suite registration authority. Operations validates the application's real registration credential and forwards the sanitized configuration contract to Aegis.Configuration.
 
-`POST /api/contracts/register`
+Normal applications use the Operations approval flow and the suite environment variable:
 
-The request uses `X-Configuration-Registration-Key`. Registration is authenticated against the per-application registration secret:
+`AEGIS_REGISTRATION_KEY`
 
-`configuration/registration/<ApplicationId>`
+The control-plane services `Aegis.Operations`, `Aegis.Configuration`, and `Aegis.Diagnostics` are auto-provisioned only through the local Operations control-plane endpoint. They receive normal Operations registration records and real generated credentials; there is no separate Configuration bootstrap credential store.
 
-This registration credential protects the Configuration service itself; it is not an application runtime secret and is never included in a runbook.
+Configuration machine endpoints under `/api/contracts/*` accept only calls authenticated as a currently registered `Aegis.Operations` instance. Configuration verifies that credential against Operations before changing contract state.
 
 Registration is idempotent. Unchanged contracts return the same SHA-256 contract hash; changed contracts atomically replace the registered contract.
 
-The repository no longer ships fake/pre-populated application contracts. An empty Configuration installation correctly displays **NO APPLICATIONS REGISTERED** until applications publish themselves.
+The repository does not ship fake or pre-populated application contracts. An empty Configuration installation correctly displays **NO APPLICATIONS REGISTERED** until real applications publish themselves.
 
 ## Administrator workflow
 
 1. Install/copy an Aegis application.
 2. Start it.
-3. The application publishes its configuration contract when Aegis.Configuration is available.
+3. The application authenticates to Operations; Operations forwards the configuration contract when Aegis.Configuration is available.
 4. Open Aegis.Configuration and select the application/instance.
 5. Review required and optional settings and identify missing required values.
 6. Supply the missing configuration using the application's deployment instructions.
