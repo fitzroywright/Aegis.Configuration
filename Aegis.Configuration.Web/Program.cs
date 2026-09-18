@@ -102,6 +102,23 @@ app.MapGet("/api/registration/summary", async (HttpContext context, LifecycleReg
     });
 });
 
+app.MapGet("/api/registration/flow", async (
+    HttpContext context,
+    int? limit,
+    LifecycleRegistrationAuthority authority,
+    CancellationToken ct) =>
+{
+    if (!Has(context, "Configuration.View")) return Results.Forbid();
+
+    IReadOnlyList<LifecycleRegistrationRecord> records =
+        await authority.ListAllAsync(ct);
+
+    return Results.Ok(
+        LifecycleFlowSnapshotBuilder.Build(
+            records,
+            limit ?? 150));
+});
+
 app.MapGet("/api/registration/reconciliation", (HttpContext context, RegistrationReconciliationState state) =>
 {
     if (!Has(context, "Configuration.Manage")) return Results.Forbid();
