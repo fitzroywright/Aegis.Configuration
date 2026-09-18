@@ -359,6 +359,42 @@ internal static class LifecycleRegistrationEndpoints
             }
         });
 
+
+        app.MapPost("/api/registration/{registrationId}/conflict/replace-with-incoming", async (
+            HttpContext context,
+            string registrationId,
+            LifecycleDecisionRequest request,
+            LifecycleRegistrationAuthority authority,
+            CancellationToken ct) =>
+        {
+            if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+            try
+            {
+                LifecycleRegistrationRecord? record =
+                    await authority.ReplaceWithConflictingIdentityAsync(
+                        registrationId,
+                        Actor(context),
+                        context.Connection.RemoteIpAddress?.ToString(),
+                        context.Request.Headers.UserAgent.ToString(),
+                        request.Reason,
+                        Correlation(context),
+                        ct);
+
+                return record is null
+                    ? Results.NotFound()
+                    : Results.Ok(new
+                    {
+                        record.RegistrationId,
+                        state = record.State.ToString(),
+                        next = "Incoming installation must retry registration and will create a fresh Pending request."
+                    });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+        });
+
     }
 
     private static bool Valid(string? app, string? instance, string? installation)
