@@ -83,7 +83,7 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                    claim_token_hash, claim_expires_at_utc, credential_hash,
                    created_at_utc, updated_at_utc, approved_at_utc, registered_at_utc,
                    last_authenticated_at_utc, revoked_at_utc, metadata_json,
-                   audit_json, conflict_installation_id
+                   conflict_installation_id
             FROM aegis_registration
             WHERE registration_id = @id;
             """,
@@ -289,11 +289,11 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                 CREATE OR REPLACE FUNCTION aegis_registration_audit_immutable()
                 RETURNS trigger
                 LANGUAGE plpgsql
-                AS $
+                AS $audit$
                 BEGIN
                     RAISE EXCEPTION 'aegis_registration_audit is append-only';
                 END;
-                $;
+                $audit$;
 
                 DROP TRIGGER IF EXISTS trg_aegis_registration_audit_immutable
                     ON aegis_registration_audit;
