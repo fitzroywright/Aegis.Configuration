@@ -10,5 +10,6 @@
     <ProjectReference Include="../Aegis.Configuration.Domain/Aegis.Configuration.Domain.csproj" />
     <ProjectReference Include="../Aegis.Configuration.Application/Aegis.Configuration.Application.csproj" />
     <ProjectReference Include="../Aegis.Configuration.Infrastructure/Aegis.Configuration.Infrastructure.csproj" />
+    <ProjectReference Include="../Aegis.Configuration.Web/Aegis.Configuration.Web.csproj" />
   </ItemGroup>
 </Project>
