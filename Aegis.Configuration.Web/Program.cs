@@ -14,6 +14,7 @@ builder.Services.AddCommonSecrets(builder.Configuration);
 builder.Services.AddSuiteSecurity();
 builder.Services.AddHttpClient("operations-registration", client => client.Timeout = TimeSpan.FromSeconds(10));
 builder.Services.AddSingleton<OperationsRegistrationAuthority>();
+builder.Services.AddSingleton<LifecycleRegistrationAuthority>();
 builder.Services.AddHostedService<ConfigurationRegistrationPublisher>();
 DirectoryContractStore contractStore = new(contractDirectory);
 builder.Services.AddSingleton(contractStore);
@@ -27,6 +28,7 @@ builder.Services.AddSingleton<ContractValidator>();
 WebApplication app = builder.Build();
 app.UseSuiteSecurity();
 app.MapSuiteSecurity();
+app.MapLifecycleRegistration();
 
 app.MapGet("/", async (IConfigurationContractStore store, ConfigurationEvaluator evaluator, CancellationToken ct) =>
 {
