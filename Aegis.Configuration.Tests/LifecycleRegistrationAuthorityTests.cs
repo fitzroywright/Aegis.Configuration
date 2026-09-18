@@ -1,0 +1,325 @@
+using System.Text.Json.Nodes;
+using Microsoft.Extensions.Configuration;
+
+public sealed class LifecycleRegistrationAuthorityTests
+{
+    [Fact]
+    public async Task Introduction_IsZeroTrustPending_AndDuplicateIsIdempotent()
+    {
+        var store = new InMemoryLifecycleRegistrationStore();
+        LifecycleRegistrationAuthority authority = CreateAuthority(store);
+
+        LifecycleIntroductionResult first = await authority.IntroduceAsync(
+            "Aegis.Hello",
+            "Production",
+            "install-1",
+            new JsonObject { ["hostname"] = "kratos" },
+            "unauthenticated-introduction",
+            "10.10.0.10",
+            "test",
+            "corr-1",
+            CancellationToken.None);
+
+        LifecycleIntroductionResult second = await authority.IntroduceAsync(
+            "Aegis.Hello",
+            "Production",
+            "install-1",
+            null,
+            "unauthenticated-introduction",
+            "10.10.0.10",
+            "test",
+            "corr-2",
+            CancellationToken.None);
+
+        Assert.True(first.Created);
+        Assert.False(first.Conflict);
+        Assert.Equal(LifecycleRegistrationState.Pending, first.Record.State);
+        Assert.NotNull(first.ClaimToken);
+        Assert.Null(first.Record.CredentialHash);
+
+        Assert.False(second.Created);
+        Assert.False(second.Conflict);
+        Assert.Equal(first.Record.RegistrationId, second.Record.RegistrationId);
+        Assert.Null(second.ClaimToken);
+        Assert.Single(await store.LoadAllAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task SameLogicalInstance_WithDifferentInstallationId_BecomesConflict()
+    {
+        var store = new InMemoryLifecycleRegistrationStore();
+        LifecycleRegistrationAuthority authority = CreateAuthority(store);
+
+        LifecycleIntroductionResult first = await authority.IntroduceAsync(
+            "Aegis.Hello", "Production", "install-a", null,
+            "intro", null, null, "corr-a", CancellationToken.None);
+
+        LifecycleIntroductionResult conflicting = await authority.IntroduceAsync(
+            "Aegis.Hello", "Production", "install-b", null,
+            "intro", null, null, "corr-b", CancellationToken.None);
+
+        Assert.True(conflicting.Conflict);
+        Assert.False(conflicting.Created);
+        Assert.Equal(first.Record.RegistrationId, conflicting.Record.RegistrationId);
+        Assert.Equal("install-a", conflicting.Record.InstallationId);
+        Assert.Equal("install-b", conflicting.Record.ConflictInstallationId);
+        Assert.Equal(LifecycleRegistrationState.IdentityConflict, conflicting.Record.State);
+        Assert.Contains(conflicting.Record.Audit, x => x.Action == "IdentityConflict");
+    }
+
+    [Fact]
+    public async Task ApprovedClaim_IsSingleUse_AndCredentialIsStoredOnlyAsHash()
+    {
+        var store = new InMemoryLifecycleRegistrationStore();
+        LifecycleRegistrationAuthority authority = CreateAuthority(store);
+
+        LifecycleIntroductionResult introduction = await authority.IntroduceAsync(
+            "Aegis.Hello", "Production", "install-1", null,
+            "intro", null, null, "corr-1", CancellationToken.None);
+
+        LifecycleRegistrationRecord? approved = await authority.DecideAsync(
+            introduction.Record.RegistrationId,
+            true,
+            "administrator",
+            "10.10.0.1",
+            "browser",
+            "approved for test",
+            "corr-2",
+            CancellationToken.None);
+
+        Assert.NotNull(approved);
+        Assert.Equal(LifecycleRegistrationState.Approved, approved!.State);
+
+        LifecycleClaimResult claim = await authority.ClaimAsync(
+            introduction.Record.RegistrationId,
+            "Aegis.Hello",
+            "Production",
+            "install-1",
+            introduction.ClaimToken!,
+            "corr-3",
+            CancellationToken.None);
+
+        Assert.NotNull(claim.Credential);
+        Assert.Equal(LifecycleRegistrationState.Registered, claim.Record!.State);
+        Assert.NotEqual(claim.Credential, claim.Record.CredentialHash);
+        Assert.StartsWith("PBKDF2-SHA256$", claim.Record.CredentialHash);
+
+        LifecycleClaimResult replay = await authority.ClaimAsync(
+            introduction.Record.RegistrationId,
+            "Aegis.Hello",
+            "Production",
+            "install-1",
+            introduction.ClaimToken!,
+            "corr-4",
+            CancellationToken.None);
+
+        Assert.True(replay.InvalidClaim);
+        Assert.Null(replay.Credential);
+    }
+
+    [Fact]
+    public async Task CredentialRecovery_RequiresApproval_AndRotatesCredential()
+    {
+        var store = new InMemoryLifecycleRegistrationStore();
+        LifecycleRegistrationAuthority authority = CreateAuthority(store);
+
+        (LifecycleRegistrationRecord registered, string originalCredential) =
+            await RegisterAsync(authority, "install-1");
+
+        LifecycleIntroductionResult recovery = await authority.RequestRecoveryAsync(
+            "Aegis.Hello",
+            "Production",
+            "install-1",
+            "recovery-request",
+            "10.10.0.10",
+            "test",
+            "corr-r1",
+            CancellationToken.None);
+
+        Assert.True(recovery.Created);
+        Assert.Equal(LifecycleRegistrationState.RecoveryPending, recovery.Record.State);
+        Assert.NotNull(recovery.ClaimToken);
+
+        LifecycleClaimResult beforeApproval = await authority.ClaimAsync(
+            registered.RegistrationId,
+            "Aegis.Hello",
+            "Production",
+            "install-1",
+            recovery.ClaimToken!,
+            "corr-r2",
+            CancellationToken.None);
+
+        Assert.True(beforeApproval.Pending);
+        Assert.Null(beforeApproval.Credential);
+
+        LifecycleRegistrationRecord? recoveryApproved = await authority.DecideAsync(
+            registered.RegistrationId,
+            true,
+            "administrator",
+            null,
+            null,
+            "credential lost",
+            "corr-r3",
+            CancellationToken.None);
+
+        Assert.Equal(LifecycleRegistrationState.RecoveryApproved, recoveryApproved!.State);
+        Assert.Null(recoveryApproved.CredentialHash);
+
+        LifecycleClaimResult replacement = await authority.ClaimAsync(
+            registered.RegistrationId,
+            "Aegis.Hello",
+            "Production",
+            "install-1",
+            recovery.ClaimToken!,
+            "corr-r4",
+            CancellationToken.None);
+
+        Assert.Equal(LifecycleRegistrationState.Registered, replacement.Record!.State);
+        Assert.NotNull(replacement.Credential);
+        Assert.NotEqual(originalCredential, replacement.Credential);
+    }
+
+    [Fact]
+    public async Task Revocation_InvalidatesCredential_AndPurgePreservesHistory()
+    {
+        var store = new InMemoryLifecycleRegistrationStore();
+        LifecycleRegistrationAuthority authority = CreateAuthority(store);
+
+        (LifecycleRegistrationRecord registered, string credential) =
+            await RegisterAsync(authority, "install-1");
+
+        LifecycleRegistrationRecord? authenticated = await authority.AuthenticateAsync(
+            "Aegis.Hello", "Production", "install-1", credential, "corr-a", CancellationToken.None);
+        Assert.Equal(LifecycleRegistrationState.Registered, authenticated!.State);
+
+        LifecycleRegistrationRecord? revoked = await authority.RevokeAsync(
+            registered.RegistrationId,
+            "administrator",
+            "10.10.0.1",
+            "browser",
+            "security test",
+            "corr-r",
+            CancellationToken.None);
+
+        Assert.Equal(LifecycleRegistrationState.Revoked, revoked!.State);
+        Assert.Null(revoked.CredentialHash);
+
+        LifecycleRegistrationRecord? afterRevoke = await authority.AuthenticateAsync(
+            "Aegis.Hello", "Production", "install-1", credential, "corr-b", CancellationToken.None);
+        Assert.Equal(LifecycleRegistrationState.Revoked, afterRevoke!.State);
+
+        LifecycleRegistrationRecord? purged = await authority.PurgeAsync(
+            registered.RegistrationId,
+            "administrator",
+            "10.10.0.1",
+            "browser",
+            "cleanup",
+            "corr-p",
+            CancellationToken.None);
+
+        Assert.Equal(LifecycleRegistrationState.Purged, purged!.State);
+        Assert.Empty(await authority.ListAsync(CancellationToken.None));
+
+        IReadOnlyList<LifecycleRegistrationRecord> history =
+            await authority.ListAllAsync(CancellationToken.None);
+        Assert.Single(history);
+        Assert.Equal(LifecycleRegistrationState.Purged, history[0].State);
+        Assert.Contains(history[0].Audit, x => x.Action == "Revoked");
+        Assert.Contains(history[0].Audit, x => x.Action == "Purged");
+    }
+
+    [Fact]
+    public async Task PurgeBeforeRevokeOrReject_IsRejected()
+    {
+        var store = new InMemoryLifecycleRegistrationStore();
+        LifecycleRegistrationAuthority authority = CreateAuthority(store);
+
+        LifecycleIntroductionResult introduction = await authority.IntroduceAsync(
+            "Aegis.Hello", "Production", "install-1", null,
+            "intro", null, null, "corr", CancellationToken.None);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            authority.PurgeAsync(
+                introduction.Record.RegistrationId,
+                "administrator",
+                null,
+                null,
+                "invalid purge",
+                "corr-p",
+                CancellationToken.None));
+    }
+
+    private static LifecycleRegistrationAuthority CreateAuthority(
+        ILifecycleRegistrationStore store)
+    {
+        IConfiguration configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["AegisConfiguration:RegistrationClaimLifetimeMinutes"] = "30"
+            })
+            .Build();
+
+        return new LifecycleRegistrationAuthority(configuration, store);
+    }
+
+    private static async Task<(LifecycleRegistrationRecord Record, string Credential)> RegisterAsync(
+        LifecycleRegistrationAuthority authority,
+        string installationId)
+    {
+        LifecycleIntroductionResult introduction = await authority.IntroduceAsync(
+            "Aegis.Hello",
+            "Production",
+            installationId,
+            null,
+            "intro",
+            null,
+            null,
+            "corr-intro",
+            CancellationToken.None);
+
+        await authority.DecideAsync(
+            introduction.Record.RegistrationId,
+            true,
+            "administrator",
+            null,
+            null,
+            "approved",
+            "corr-approve",
+            CancellationToken.None);
+
+        LifecycleClaimResult claim = await authority.ClaimAsync(
+            introduction.Record.RegistrationId,
+            "Aegis.Hello",
+            "Production",
+            installationId,
+            introduction.ClaimToken!,
+            "corr-claim",
+            CancellationToken.None);
+
+        return (claim.Record!, claim.Credential!);
+    }
+
+    private sealed class InMemoryLifecycleRegistrationStore : ILifecycleRegistrationStore
+    {
+        private readonly Dictionary<string, LifecycleRegistrationRecord> _records =
+            new(StringComparer.Ordinal);
+
+        public Task<IReadOnlyList<LifecycleRegistrationRecord>> LoadAllAsync(CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<LifecycleRegistrationRecord>>(
+                _records.Values.OrderByDescending(x => x.UpdatedAtUtc).ToList());
+
+        public Task<LifecycleRegistrationRecord?> LoadAsync(
+            string registrationId,
+            CancellationToken ct)
+        {
+            _records.TryGetValue(registrationId, out LifecycleRegistrationRecord? record);
+            return Task.FromResult(record);
+        }
+
+        public Task SaveAsync(LifecycleRegistrationRecord record, CancellationToken ct)
+        {
+            _records[record.RegistrationId] = record;
+            return Task.CompletedTask;
+        }
+    }
+}
