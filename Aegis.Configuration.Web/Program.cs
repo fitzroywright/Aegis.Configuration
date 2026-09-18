@@ -10,11 +10,12 @@ using Common.Secrets;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
-string contractDirectory = builder.Configuration["AegisConfiguration:ContractDirectory"] ?? Path.Combine(builder.Environment.ContentRootPath, "contracts");
+string contractDirectory = builder.Configuration["AegisConfiguration:ContractDirectory"] ?? "/var/lib/aegis/configuration/contracts";
 string instructionDirectory = builder.Configuration["AegisConfiguration:InstructionDirectory"] ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "instruction-packs"));
 builder.Services.AddCommonSecrets(builder.Configuration);
 builder.Services.AddSuiteSecurity();
 DirectoryContractStore contractStore = new(contractDirectory);
+builder.Services.AddSingleton(contractStore);
 builder.Services.AddSingleton<IConfigurationContractStore>(contractStore);
 builder.Services.AddSingleton<IConfigurationContractRegistrationStore>(contractStore);
 builder.Services.AddSingleton(new InstructionPackCatalog(instructionDirectory));
@@ -135,6 +136,43 @@ app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationCo
     ConfigurationContractRegistrationResult registration = await store.RegisterAsync(contract, ct);
     registrationLogger.LogInformation("Configuration contract registration succeeded. Changed={Changed}.", registration.Changed);
     return Results.Ok(new { registered = true, registration.ApplicationId, registration.Version, registration.Changed, registration.LastRegisteredAtUtc });
+});
+
+app.MapPost("/api/contracts/{applicationId}/retire", async (HttpContext context, string applicationId, DirectoryContractStore store, IConfiguration configuration, CancellationToken ct) =>
+{
+    string? configuredKey = configuration["AegisConfiguration:RegistrationKey"];
+    if (string.IsNullOrWhiteSpace(configuredKey))
+        return Results.Problem("Contract lifecycle management is disabled because no Operations registration credential is configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
+    string supplied = context.Request.Headers["X-Aegis-Registration-Key"].ToString();
+    if (!FixedEquals(configuredKey, supplied)) return Results.Unauthorized();
+
+    string reason = context.Request.Query["reason"].ToString();
+    bool retired = await store.RetireAsync(applicationId, string.IsNullOrWhiteSpace(reason) ? "revoked" : reason, ct);
+    return retired ? Results.Ok(new { applicationId, retired = true }) : Results.NotFound();
+});
+
+app.MapDelete("/api/contracts/{applicationId}", async (HttpContext context, string applicationId, DirectoryContractStore store, IConfiguration configuration, CancellationToken ct) =>
+{
+    string? configuredKey = configuration["AegisConfiguration:RegistrationKey"];
+    if (string.IsNullOrWhiteSpace(configuredKey))
+        return Results.Problem("Contract lifecycle management is disabled because no Operations registration credential is configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
+    string supplied = context.Request.Headers["X-Aegis-Registration-Key"].ToString();
+    if (!FixedEquals(configuredKey, supplied)) return Results.Unauthorized();
+
+    bool purged = await store.PurgeAsync(applicationId, ct);
+    return purged ? Results.NoContent() : Results.NotFound();
+});
+
+app.MapPost("/api/contracts/reconcile", async (HttpContext context, string[] activeApplicationIds, DirectoryContractStore store, IConfiguration configuration, CancellationToken ct) =>
+{
+    string? configuredKey = configuration["AegisConfiguration:RegistrationKey"];
+    if (string.IsNullOrWhiteSpace(configuredKey))
+        return Results.Problem("Contract reconciliation is disabled because no Operations registration credential is configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
+    string supplied = context.Request.Headers["X-Aegis-Registration-Key"].ToString();
+    if (!FixedEquals(configuredKey, supplied)) return Results.Unauthorized();
+
+    IReadOnlyList<string> retired = await store.ReconcileAsync(activeApplicationIds, ct);
+    return Results.Ok(new { active = activeApplicationIds.Length, retired });
 });
 
 app.MapGet("/api/contracts/discovery", async (HttpContext context, IConfigurationContractStore store, IConfiguration configuration, CancellationToken ct) =>
