@@ -105,7 +105,7 @@ app.MapGet("/runbooks/{applicationId}", async (string applicationId, IConfigurat
     return Html(ConfigurationShell.Render("Runbook", $"<section class='page-head'><div><h1>{E(contract.DisplayName)} Runbook</h1><p>Commissioning guidance for {E(contract.ApplicationId)}</p></div></section><section class='panel'><h2>Configuration Contract</h2><p>Version {E(contract.Version)} · Site {E(contract.SiteId)} · Instance {E(contract.InstanceId)}</p><a class='primary' href='/applications/{Uri.EscapeDataString(contract.ApplicationId)}'>Back to application</a></section>", "runbooks"));
 });
 
-app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationConfigurationContract contract, IConfigurationContractRegistrationStore store, ContractValidator validator, OperationsRegistrationAuthority authority, ILoggerFactory loggerFactory, CancellationToken ct) =>
+app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationConfigurationContract contract, IConfigurationContractRegistrationStore store, ContractValidator validator, OperationsRegistrationAuthority operationsAuthority, LifecycleRegistrationAuthority lifecycleAuthority, ILoggerFactory loggerFactory, CancellationToken ct) =>
 {
     ILogger registrationLogger = loggerFactory.CreateLogger("Aegis.Configuration.Registration");
     string attemptId = context.Request.Headers["X-Aegis-Registration-Attempt-Id"].ToString();
@@ -118,12 +118,58 @@ app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationCo
         ["Stage"] = "ContractRegistration"
     });
     registrationLogger.LogInformation("Configuration contract registration request received.");
-    if (!await authority.ValidateOperationsAsync(context.Request, ct))
+
+    string installationId = context.Request.Headers["X-Aegis-Installation-Id"].ToString().Trim();
+    if (!string.IsNullOrWhiteSpace(installationId))
     {
-        registrationLogger.LogWarning("Configuration contract registration rejected because the Operations registration credential is invalid or unavailable.");
-        return Results.Unauthorized();
+        string applicationId = context.Request.Headers["X-Aegis-Application-Id"].ToString().Trim();
+        string instanceId = context.Request.Headers["X-Aegis-Instance-Id"].ToString().Trim();
+        string credential = string.Empty;
+        if (System.Net.Http.Headers.AuthenticationHeaderValue.TryParse(
+                context.Request.Headers.Authorization.ToString(),
+                out var authorization) &&
+            string.Equals(authorization.Scheme, "Bearer", StringComparison.OrdinalIgnoreCase))
+        {
+            credential = authorization.Parameter?.Trim() ?? string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(applicationId) ||
+            string.IsNullOrWhiteSpace(instanceId) ||
+            string.IsNullOrWhiteSpace(credential) ||
+            !string.Equals(contract.ApplicationId, applicationId, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(contract.InstanceId, instanceId, StringComparison.OrdinalIgnoreCase))
+        {
+            registrationLogger.LogWarning("Authenticated application contract identity did not match the submitted contract.");
+            return Results.Unauthorized();
+        }
+
+        LifecycleRegistrationRecord? authenticated = await lifecycleAuthority.AuthenticateAsync(
+            applicationId,
+            instanceId,
+            installationId,
+            credential,
+            attemptId,
+            ct);
+
+        if (authenticated is null || authenticated.State != LifecycleRegistrationState.Registered)
+        {
+            registrationLogger.LogWarning("Application durable identity could not authenticate contract publication.");
+            return Results.Unauthorized();
+        }
+
+        registrationLogger.LogInformation(
+            "Application durable identity authenticated for configuration contract publication.");
     }
-    registrationLogger.LogInformation("Operations registration credential accepted.");
+    else
+    {
+        if (!await operationsAuthority.ValidateOperationsAsync(context.Request, ct))
+        {
+            registrationLogger.LogWarning("Configuration contract registration rejected because neither durable application identity nor Operations control-plane identity authenticated.");
+            return Results.Unauthorized();
+        }
+
+        registrationLogger.LogInformation("Operations control-plane identity authenticated for contract publication.");
+    }
     var validation = validator.Validate(contract);
     if (!validation.IsValid)
     {
