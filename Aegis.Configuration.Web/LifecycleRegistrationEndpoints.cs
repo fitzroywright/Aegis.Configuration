@@ -345,6 +345,109 @@ internal static class LifecycleRegistrationEndpoints
                 return Results.Conflict(new { error = ex.Message });
             }
         });
+
+        app.MapPost("/api/registration/{registrationId}/revoke", async (
+            HttpContext context,
+            string registrationId,
+            LifecycleDecisionRequest request,
+            LifecycleRegistrationAuthority authority,
+            CancellationToken ct) =>
+        {
+            if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+            LifecycleRegistrationRecord? record = await authority.RevokeAsync(
+                registrationId, Actor(context),
+                context.Connection.RemoteIpAddress?.ToString(),
+                context.Request.Headers.UserAgent.ToString(),
+                request.Reason, Correlation(context), ct);
+            return record is null ? Results.NotFound() : Results.Ok(new
+            {
+                record.RegistrationId,
+                state = record.State.ToString(),
+                record.RevokedAtUtc
+            });
+        });
+
+        app.MapDelete("/api/registration/{registrationId}", async (
+            HttpContext context,
+            string registrationId,
+            LifecycleRegistrationAuthority authority,
+            CancellationToken ct) =>
+        {
+            if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+            try
+            {
+                LifecycleRegistrationRecord? record = await authority.PurgeAsync(
+                    registrationId, Actor(context),
+                    context.Connection.RemoteIpAddress?.ToString(),
+                    context.Request.Headers.UserAgent.ToString(),
+                    "Administrative purge", Correlation(context), ct);
+                return record is null ? Results.NotFound() : Results.Ok(new
+                {
+                    record.RegistrationId,
+                    state = record.State.ToString(),
+                    purged = true
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+        });
+
+        app.MapPost("/api/registration/{registrationId}/conflict/retire-existing", async (
+            HttpContext context,
+            string registrationId,
+            LifecycleDecisionRequest request,
+            LifecycleRegistrationAuthority authority,
+            CancellationToken ct) =>
+        {
+            if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+            try
+            {
+                LifecycleRegistrationRecord? record = await authority.ResolveIdentityConflictAsync(
+                    registrationId, true, Actor(context),
+                    context.Connection.RemoteIpAddress?.ToString(),
+                    context.Request.Headers.UserAgent.ToString(),
+                    request.Reason, Correlation(context), ct);
+                return record is null ? Results.NotFound() : Results.Ok(new
+                {
+                    record.RegistrationId,
+                    state = record.State.ToString(),
+                    nextStep = "The new installation must request registration again and enter Pending approval."
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+        });
+
+        app.MapPost("/api/registration/{registrationId}/conflict/reject", async (
+            HttpContext context,
+            string registrationId,
+            LifecycleDecisionRequest request,
+            LifecycleRegistrationAuthority authority,
+            CancellationToken ct) =>
+        {
+            if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+            try
+            {
+                LifecycleRegistrationRecord? record = await authority.ResolveIdentityConflictAsync(
+                    registrationId, false, Actor(context),
+                    context.Connection.RemoteIpAddress?.ToString(),
+                    context.Request.Headers.UserAgent.ToString(),
+                    request.Reason, Correlation(context), ct);
+                return record is null ? Results.NotFound() : Results.Ok(new
+                {
+                    record.RegistrationId,
+                    state = record.State.ToString()
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+        });
     }
 
     private static bool Valid(string? app, string? instance, string? installation)
