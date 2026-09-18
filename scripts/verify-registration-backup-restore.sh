@@ -74,6 +74,31 @@ if [[ "$plaintext_credentials" != "0" ]]; then
   exit 1
 fi
 
+
+if [[ "$restored_audit_count" != "0" ]]; then
+  if psql "$AEGIS_REGISTRATION_RESTORE_TEST_PGURL" -v ON_ERROR_STOP=1 -c "
+    UPDATE aegis_registration_audit
+    SET action = action || '-tampered'
+    WHERE audit_id = (SELECT min(audit_id) FROM aegis_registration_audit);
+  " >/dev/null 2>&1; then
+    echo "FAIL: append-only audit ledger allowed UPDATE." >&2
+    exit 1
+  fi
+
+  if psql "$AEGIS_REGISTRATION_RESTORE_TEST_PGURL" -v ON_ERROR_STOP=1 -c "
+    DELETE FROM aegis_registration_audit
+    WHERE audit_id = (SELECT min(audit_id) FROM aegis_registration_audit);
+  " >/dev/null 2>&1; then
+    echo "FAIL: append-only audit ledger allowed DELETE." >&2
+    exit 1
+  fi
+
+  echo "Audit ledger UPDATE protection: PASS"
+  echo "Audit ledger DELETE protection: PASS"
+else
+  echo "Audit ledger tamper test: BLOCKED (no audit rows in restored database)"
+fi
+
 echo "PASS: registration database backup restored successfully."
 echo "Registrations: $restored_registration_count"
 echo "Audit events: $restored_audit_count"
