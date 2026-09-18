@@ -665,6 +665,69 @@ internal sealed class LifecycleRegistrationAuthority
     }
 
 
+
+    public async Task<LifecycleRegistrationRecord?> ReplaceWithConflictingIdentityAsync(
+        string registrationId,
+        string actor,
+        string? sourceIp,
+        string? userAgent,
+        string? reason,
+        string? correlationId,
+        CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            LifecycleRegistrationRecord? record =
+                await _store.LoadAsync(registrationId, ct);
+
+            if (record is null)
+                return null;
+
+            if (record.State != LifecycleRegistrationState.IdentityConflict ||
+                string.IsNullOrWhiteSpace(record.ConflictInstallationId))
+            {
+                throw new InvalidOperationException(
+                    "Registration is not in a replaceable identity conflict.");
+            }
+
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            string incoming = record.ConflictInstallationId;
+
+            LifecycleRegistrationRecord retired = record with
+            {
+                State = LifecycleRegistrationState.Purged,
+                CredentialHash = null,
+                ClaimTokenHash = HashToken(Token()),
+                ClaimExpiresAtUtc = now,
+                RevokedAtUtc = now,
+                UpdatedAtUtc = now,
+                Audit =
+                [
+                    .. record.Audit,
+                    Audit(
+                        "IdentityConflictResolvedReplaceWithIncoming",
+                        actor,
+                        sourceIp,
+                        userAgent,
+                        string.IsNullOrWhiteSpace(reason)
+                            ? $"Existing identity retired; incoming InstallationId {incoming} must request a fresh registration."
+                            : reason,
+                        correlationId,
+                        record.State,
+                        LifecycleRegistrationState.Purged)
+                ]
+            };
+
+            await _store.SaveAsync(retired, ct);
+            return retired;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<IReadOnlyList<LifecycleRegistrationRecord>> ListAllAsync(
         CancellationToken ct)
     {
