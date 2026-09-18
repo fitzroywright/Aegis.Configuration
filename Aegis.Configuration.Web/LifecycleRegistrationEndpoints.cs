@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.RateLimiting;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json.Nodes;
@@ -33,6 +34,9 @@ internal static class LifecycleRegistrationEndpoints
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
+            if (context.Request.ContentLength is > 65536)
+                return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+
             if (!Valid(request.ApplicationId, request.InstanceId, request.InstallationId))
                 return Results.BadRequest(new { error = "ApplicationId, InstanceId and InstallationId are required." });
 
@@ -85,7 +89,7 @@ internal static class LifecycleRegistrationEndpoints
                 result.ClaimToken,
                 state = result.Record.State.ToString()
             });
-        }).AllowAnonymous();
+        }).AllowAnonymous().RequireRateLimiting("registration-lifecycle-rate-limit");
 
         app.MapPost("/api/registration/{registrationId}/claim", async (
             HttpContext context,
@@ -94,6 +98,9 @@ internal static class LifecycleRegistrationEndpoints
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
+            if (context.Request.ContentLength is > 16384)
+                return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+
             if (!Valid(request.ApplicationId, request.InstanceId, request.InstallationId) ||
                 string.IsNullOrWhiteSpace(request.ClaimToken))
                 return Results.BadRequest(new { error = "Complete identity and claim token are required." });
@@ -121,7 +128,7 @@ internal static class LifecycleRegistrationEndpoints
                 credential = result.Credential,
                 state = "Registered"
             });
-        }).AllowAnonymous();
+        }).AllowAnonymous().RequireRateLimiting("registration-lifecycle-rate-limit");
 
         app.MapPost("/api/registration/authenticate", async (
             HttpContext context,
@@ -158,7 +165,7 @@ internal static class LifecycleRegistrationEndpoints
                 state = "Registered",
                 record.LastAuthenticatedAtUtc
             });
-        }).AllowAnonymous();
+        }).AllowAnonymous().RequireRateLimiting("registration-lifecycle-rate-limit");
 
         app.MapPost("/api/registration/recovery", async (
             HttpContext context,
@@ -166,6 +173,9 @@ internal static class LifecycleRegistrationEndpoints
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
+            if (context.Request.ContentLength is > 16384)
+                return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+
             if (!Valid(request.ApplicationId, request.InstanceId, request.InstallationId))
                 return Results.BadRequest(new { error = "ApplicationId, InstanceId and InstallationId are required." });
 
@@ -203,7 +213,7 @@ internal static class LifecycleRegistrationEndpoints
             {
                 return Results.NotFound(new { error = ex.Message });
             }
-        }).AllowAnonymous();
+        }).AllowAnonymous().RequireRateLimiting("registration-lifecycle-rate-limit");
 
         app.MapGet("/api/registration/requests", async (
             HttpContext context,
