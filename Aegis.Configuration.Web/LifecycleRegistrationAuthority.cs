@@ -66,18 +66,21 @@ internal sealed class LifecycleRegistrationAuthority
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly TimeSpan _claimLifetime;
-    private readonly PostgresLifecycleRegistrationStore _store;
+    private readonly ILifecycleRegistrationStore _store;
 
-    public LifecycleRegistrationAuthority(IConfiguration configuration)
+    public LifecycleRegistrationAuthority(
+        IConfiguration configuration,
+        ILifecycleRegistrationStore store)
     {
         ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(store);
 
         int minutes =
             configuration.GetValue<int?>("AegisConfiguration:RegistrationClaimLifetimeMinutes")
             ?? 30;
 
         _claimLifetime = TimeSpan.FromMinutes(Math.Clamp(minutes, 5, 1440));
-        _store = new PostgresLifecycleRegistrationStore(configuration);
+        _store = store;
     }
 
     public async Task<LifecycleIntroductionResult> IntroduceAsync(
