@@ -34,7 +34,28 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Test
         working-directory: Aegis.Configuration
-        run: dotnet test Aegis.Configuration.Tests/Aegis.Configuration.Tests.csproj --configuration Release
+        shell: bash
+        run: |
+          set +e
+          dotnet test Aegis.Configuration.Tests/Aegis.Configuration.Tests.csproj --configuration Release 2>&1 | tee test.log
+          code=${PIPESTATUS[0]}
+          exit "$code"
+
       - name: Build Web
         working-directory: Aegis.Configuration
-        run: dotnet build Aegis.Configuration.Web/Aegis.Configuration.Web.csproj --configuration Release
+        shell: bash
+        run: |
+          set +e
+          dotnet build Aegis.Configuration.Web/Aegis.Configuration.Web.csproj --configuration Release 2>&1 | tee web-build.log
+          code=${PIPESTATUS[0]}
+          exit "$code"
+
+      - name: Upload CI logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs
+          path: |
+            Aegis.Configuration/test.log
+            Aegis.Configuration/web-build.log
+          if-no-files-found: ignore
