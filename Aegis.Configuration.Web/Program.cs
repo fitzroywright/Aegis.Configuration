@@ -1,3 +1,5 @@
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Text.Encodings.Web;
 using System.Text.Json.Serialization;
 using Aegis.Configuration.Application;
@@ -8,6 +10,19 @@ using Common.Secrets;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddPolicy("registration-lifecycle-rate-limit", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+});
 string contractDirectory = builder.Configuration["AegisConfiguration:ContractDirectory"] ?? "/var/lib/aegis/configuration/contracts";
 string instructionDirectory = builder.Configuration["AegisConfiguration:InstructionDirectory"] ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "instruction-packs"));
 builder.Services.AddCommonSecrets(builder.Configuration);
@@ -28,6 +43,7 @@ builder.Services.AddSingleton<CommissioningService>();
 builder.Services.AddSingleton<CommissioningReportRenderer>();
 builder.Services.AddSingleton<ContractValidator>();
 WebApplication app = builder.Build();
+app.UseRateLimiter();
 app.UseSuiteSecurity();
 app.MapSuiteSecurity();
 app.MapLifecycleRegistration();
