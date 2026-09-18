@@ -126,6 +126,19 @@ public sealed class DirectoryContractStore(string directoryPath) : IConfiguratio
         return removed;
     }
 
+    public ValueTask<int> CountRetiredAsync(string? reason = null, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        string retiredDirectory = Path.Combine(directoryPath, "retired");
+        if (!Directory.Exists(retiredDirectory)) return ValueTask.FromResult(0);
+
+        string pattern = string.IsNullOrWhiteSpace(reason)
+            ? "*.configuration-contract.json"
+            : $"*.{SanitizeReason(reason)}.configuration-contract.json";
+        int count = Directory.EnumerateFiles(retiredDirectory, pattern, SearchOption.TopDirectoryOnly).Count();
+        return ValueTask.FromResult(count);
+    }
+
     public async ValueTask<IReadOnlyList<string>> ReconcileAsync(
         IReadOnlyCollection<string> activeApplicationIds,
         CancellationToken cancellationToken = default)
