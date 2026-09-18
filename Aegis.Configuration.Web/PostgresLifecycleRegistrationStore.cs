@@ -180,7 +180,7 @@ internal sealed class PostgresLifecycleRegistrationStore
             auditCommand.Parameters.AddWithValue("user_agent", (object?)audit.UserAgent ?? DBNull.Value);
             auditCommand.Parameters.AddWithValue("reason", (object?)audit.Reason ?? DBNull.Value);
             auditCommand.Parameters.AddWithValue("correlation_id", (object?)audit.CorrelationId ?? DBNull.Value);
-            auditCommand.Parameters.AddWithValue("previous_state", audit.PreviousState?.ToString() is string previous ? previous : DBNull.Value);
+            auditCommand.Parameters.AddWithValue("previous_state", (object?)audit.PreviousState?.ToString() ?? DBNull.Value);
             auditCommand.Parameters.AddWithValue("resulting_state", audit.ResultingState.ToString());
             await auditCommand.ExecuteNonQueryAsync(ct);
         }
