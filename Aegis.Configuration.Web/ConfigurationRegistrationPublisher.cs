@@ -103,7 +103,26 @@ internal sealed class ConfigurationRegistrationPublisher(
                     "instruction-directory",
                     "Instruction Directory",
                     "AegisConfiguration:InstructionDirectory",
-                    "Location containing configuration instruction packs.")
+                    "Location containing configuration instruction packs."),
+                new JsonObject
+                {
+                    ["id"] = "registration-database",
+                    ["displayName"] = "Registration Database",
+                    ["kind"] = 1,
+                    ["required"] = true,
+                    ["purpose"] = "PostgreSQL persistence for durable Aegis application identities, credential hashes, reconciliation state and audit history.",
+                    ["configurationKey"] = "AegisConfiguration:RegistrationConnectionString",
+                    ["sensitive"] = true,
+                    ["isConfigured"] =
+                        !string.IsNullOrWhiteSpace(configuration["AegisConfiguration:RegistrationConnectionString"]) ||
+                        !string.IsNullOrWhiteSpace(configuration.GetConnectionString("AegisConfiguration")),
+                    ["configurationState"] =
+                        !string.IsNullOrWhiteSpace(configuration["AegisConfiguration:RegistrationConnectionString"]) ||
+                        !string.IsNullOrWhiteSpace(configuration.GetConnectionString("AegisConfiguration"))
+                            ? "Configured"
+                            : "Unresolved",
+                    ["effectiveSource"] = "Protected configuration / secret provider"
+                }
             }
         };
     }
