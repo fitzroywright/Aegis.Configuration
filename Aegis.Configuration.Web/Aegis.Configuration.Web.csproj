@@ -6,6 +6,9 @@
     <CommonRoot Condition="'$(CommonRoot)' == ''">$(MSBuildThisFileDirectory)..\..\Common</CommonRoot>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Npgsql" Version="10.0.0" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../Aegis.Configuration.Domain/Aegis.Configuration.Domain.csproj" />
     <ProjectReference Include="../Aegis.Configuration.Application/Aegis.Configuration.Application.csproj" />
     <ProjectReference Include="../Aegis.Configuration.Infrastructure/Aegis.Configuration.Infrastructure.csproj" />
