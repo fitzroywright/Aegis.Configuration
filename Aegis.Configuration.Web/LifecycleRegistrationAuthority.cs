@@ -307,11 +307,28 @@ internal sealed class LifecycleRegistrationAuthority
                     installationId,
                     StringComparison.Ordinal))
             {
-                return record with
+                LifecycleRegistrationRecord conflict = record with
                 {
                     State = LifecycleRegistrationState.IdentityConflict,
-                    ConflictInstallationId = installationId
+                    ConflictInstallationId = installationId,
+                    UpdatedAtUtc = DateTimeOffset.UtcNow,
+                    Audit =
+                    [
+                        .. record.Audit,
+                        Audit(
+                            "IdentityConflictAuthentication",
+                            "application-authentication",
+                            null,
+                            null,
+                            "A different InstallationId attempted to authenticate the established logical instance.",
+                            correlationId,
+                            record.State,
+                            LifecycleRegistrationState.IdentityConflict)
+                    ]
                 };
+
+                await _store.SaveAsync(conflict, ct);
+                return conflict;
             }
 
             if (record.State == LifecycleRegistrationState.Revoked)
