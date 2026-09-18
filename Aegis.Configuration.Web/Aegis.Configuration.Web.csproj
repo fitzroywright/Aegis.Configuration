@@ -11,6 +11,7 @@
     <ProjectReference Include="../Aegis.Configuration.Infrastructure/Aegis.Configuration.Infrastructure.csproj" />
     <ProjectReference Include="$(CommonRoot)\Common.Diagnostics\Common.Diagnostics.csproj" />
     <ProjectReference Include="$(CommonRoot)\Common.Security\Common.Security.csproj" />
+    <ProjectReference Include="$(CommonRoot)\Common.Registration\Common.Registration.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Content Update="contracts\**\*" CopyToPublishDirectory="Never" />
