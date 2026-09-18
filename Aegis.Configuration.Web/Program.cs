@@ -99,15 +99,41 @@ app.MapGet("/runbooks/{applicationId}", async (string applicationId, IConfigurat
     return Html(ConfigurationShell.Render("Runbook", $"<section class='page-head'><div><h1>{E(contract.DisplayName)} Runbook</h1><p>Commissioning guidance for {E(contract.ApplicationId)}</p></div></section><section class='panel'><h2>Configuration Contract</h2><p>Version {E(contract.Version)} · Site {E(contract.SiteId)} · Instance {E(contract.InstanceId)}</p><a class='primary' href='/applications/{Uri.EscapeDataString(contract.ApplicationId)}'>Back to application</a></section>", "runbooks"));
 });
 
-app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationConfigurationContract contract, IConfigurationContractRegistrationStore store, ContractValidator validator, IConfiguration configuration, CancellationToken ct) =>
+app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationConfigurationContract contract, IConfigurationContractRegistrationStore store, ContractValidator validator, IConfiguration configuration, ILoggerFactory loggerFactory, CancellationToken ct) =>
 {
+    ILogger registrationLogger = loggerFactory.CreateLogger("Aegis.Configuration.Registration");
+    string attemptId = context.Request.Headers["X-Aegis-Registration-Attempt-Id"].ToString();
+    if (string.IsNullOrWhiteSpace(attemptId)) attemptId = Guid.NewGuid().ToString("N");
+    using IDisposable? logScope = registrationLogger.BeginScope(new Dictionary<string, object?>
+    {
+        ["Activity"] = "Registration",
+        ["Application"] = contract.ApplicationId,
+        ["RegistrationAttemptId"] = attemptId,
+        ["Stage"] = "ContractRegistration"
+    });
+    registrationLogger.LogInformation("Configuration contract registration request received.");
     string? configuredKey = configuration["AegisConfiguration:RegistrationKey"];
-    if (string.IsNullOrWhiteSpace(configuredKey)) return Results.Problem("Application registration is disabled because no registration credential is configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
+    if (string.IsNullOrWhiteSpace(configuredKey))
+    {
+        registrationLogger.LogWarning("Configuration contract registration cannot continue because the Operations registration credential is not configured.");
+        return Results.Problem("Application registration is disabled because no registration credential is configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
     string supplied = context.Request.Headers["X-Aegis-Registration-Key"].ToString();
-    if (!FixedEquals(configuredKey, supplied)) return Results.Unauthorized();
+    if (!FixedEquals(configuredKey, supplied))
+    {
+        registrationLogger.LogWarning("Configuration contract registration rejected because the supplied credential is invalid.");
+        return Results.Unauthorized();
+    }
+    registrationLogger.LogInformation("Configuration registration credential accepted.");
     var validation = validator.Validate(contract);
-    if (!validation.IsValid) return Results.BadRequest(validation);
+    if (!validation.IsValid)
+    {
+        registrationLogger.LogWarning("Configuration contract validation failed.");
+        return Results.BadRequest(validation);
+    }
+    registrationLogger.LogInformation("Configuration contract validation succeeded.");
     ConfigurationContractRegistrationResult registration = await store.RegisterAsync(contract, ct);
+    registrationLogger.LogInformation("Configuration contract registration succeeded. Changed={Changed}.", registration.Changed);
     return Results.Ok(new { registered = true, registration.ApplicationId, registration.Version, registration.Changed, registration.LastRegisteredAtUtc });
 });
 
