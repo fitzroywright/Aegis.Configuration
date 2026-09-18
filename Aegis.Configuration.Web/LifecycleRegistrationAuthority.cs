@@ -662,6 +662,22 @@ internal sealed class LifecycleRegistrationAuthority
     }
 
 
+    public async Task<IReadOnlyList<LifecycleRegistrationRecord>> ListAllAsync(
+        CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            return (await _store.LoadAllAsync(ct))
+                .OrderByDescending(x => x.UpdatedAtUtc)
+                .ToList();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<IReadOnlyList<LifecycleRegistrationRecord>> ListAsync(
         CancellationToken ct)
     {
