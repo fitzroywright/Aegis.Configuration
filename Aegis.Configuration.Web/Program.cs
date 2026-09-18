@@ -29,6 +29,7 @@ builder.Services.AddCommonSecrets(builder.Configuration);
 builder.Services.AddSuiteSecurity();
 builder.Services.AddHttpClient("operations-registration", client => client.Timeout = TimeSpan.FromSeconds(10));
 builder.Services.AddSingleton<OperationsRegistrationAuthority>();
+builder.Services.AddSingleton<ILifecycleRegistrationStore, PostgresLifecycleRegistrationStore>();
 builder.Services.AddSingleton<LifecycleRegistrationAuthority>();
 builder.Services.AddSingleton<RegistrationReconciliationState>();
 builder.Services.AddHostedService<LifecycleRegistrationReconciliationService>();
