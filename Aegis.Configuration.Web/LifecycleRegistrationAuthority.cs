@@ -43,7 +43,10 @@ internal sealed record LifecycleRegistrationRecord(
     DateTimeOffset? LastAuthenticatedAtUtc,
     DateTimeOffset? RevokedAtUtc,
     JsonObject? Metadata,
-    List<LifecycleAuditEvent> Audit);
+    List<LifecycleAuditEvent> Audit)
+{
+    public string? ConflictInstallationId { get; init; }
+}
 
 internal sealed record LifecycleIntroductionResult(
     LifecycleRegistrationRecord Record,
@@ -109,6 +112,7 @@ internal sealed class LifecycleRegistrationAuthority
                     LifecycleRegistrationRecord conflict = existing with
                     {
                         State = LifecycleRegistrationState.IdentityConflict,
+                        ConflictInstallationId = installationId,
                         UpdatedAtUtc = DateTimeOffset.UtcNow,
                         Audit = [.. existing.Audit, Audit("IdentityConflict", actor, sourceIp, userAgent,
                             "Same ApplicationId/InstanceId presented a different InstallationId.", correlationId,
@@ -330,6 +334,112 @@ internal sealed class LifecycleRegistrationAuthority
             };
             await SaveUnsafeAsync(updated, ct);
             return updated;
+        }
+        finally { _gate.Release(); }
+    }
+
+
+    public async Task<LifecycleRegistrationRecord?> RevokeAsync(
+        string registrationId,
+        string actor,
+        string? sourceIp,
+        string? userAgent,
+        string? reason,
+        string? correlationId,
+        CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            LifecycleRegistrationRecord? record = await LoadUnsafeAsync(registrationId, ct);
+            if (record is null) return null;
+            if (record.State == LifecycleRegistrationState.Purged) return record;
+
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            LifecycleRegistrationRecord revoked = record with
+            {
+                State = LifecycleRegistrationState.Revoked,
+                CredentialHash = null,
+                ClaimTokenHash = Hash(Token()),
+                ClaimExpiresAtUtc = now,
+                RevokedAtUtc = now,
+                UpdatedAtUtc = now,
+                Audit = [.. record.Audit, Audit("Revoked", actor, sourceIp, userAgent,
+                    reason, correlationId, record.State, LifecycleRegistrationState.Revoked)]
+            };
+            await SaveUnsafeAsync(revoked, ct);
+            return revoked;
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task<LifecycleRegistrationRecord?> PurgeAsync(
+        string registrationId,
+        string actor,
+        string? sourceIp,
+        string? userAgent,
+        string? reason,
+        string? correlationId,
+        CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            LifecycleRegistrationRecord? record = await LoadUnsafeAsync(registrationId, ct);
+            if (record is null) return null;
+            if (record.State is not (LifecycleRegistrationState.Revoked or LifecycleRegistrationState.Rejected))
+                throw new InvalidOperationException("Registration must be revoked or rejected before purge.");
+
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            LifecycleRegistrationRecord purged = record with
+            {
+                State = LifecycleRegistrationState.Purged,
+                CredentialHash = null,
+                ClaimTokenHash = Hash(Token()),
+                ClaimExpiresAtUtc = now,
+                UpdatedAtUtc = now,
+                ConflictInstallationId = null,
+                Audit = [.. record.Audit, Audit("Purged", actor, sourceIp, userAgent,
+                    reason, correlationId, record.State, LifecycleRegistrationState.Purged)]
+            };
+            await SaveUnsafeAsync(purged, ct);
+            return purged;
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task<LifecycleRegistrationRecord?> RetainExistingIdentityAsync(
+        string registrationId,
+        string actor,
+        string? sourceIp,
+        string? userAgent,
+        string? reason,
+        string? correlationId,
+        CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            LifecycleRegistrationRecord? record = await LoadUnsafeAsync(registrationId, ct);
+            if (record is null) return null;
+            if (record.State != LifecycleRegistrationState.IdentityConflict)
+                throw new InvalidOperationException("Registration is not in identity conflict.");
+
+            LifecycleRegistrationState restored =
+                !string.IsNullOrWhiteSpace(record.CredentialHash) && record.RegisteredAtUtc.HasValue
+                    ? LifecycleRegistrationState.Registered
+                    : LifecycleRegistrationState.Pending;
+
+            LifecycleRegistrationRecord resolved = record with
+            {
+                State = restored,
+                ConflictInstallationId = null,
+                UpdatedAtUtc = DateTimeOffset.UtcNow,
+                Audit = [.. record.Audit, Audit("IdentityConflictResolvedRetainExisting", actor, sourceIp, userAgent,
+                    reason, correlationId, record.State, restored)]
+            };
+            await SaveUnsafeAsync(resolved, ct);
+            return resolved;
         }
         finally { _gate.Release(); }
     }
