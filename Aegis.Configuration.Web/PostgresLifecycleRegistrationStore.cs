@@ -2,7 +2,14 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Npgsql;
 
-internal sealed class PostgresLifecycleRegistrationStore
+internal interface ILifecycleRegistrationStore
+{
+    Task<IReadOnlyList<LifecycleRegistrationRecord>> LoadAllAsync(CancellationToken ct);
+    Task<LifecycleRegistrationRecord?> LoadAsync(string registrationId, CancellationToken ct);
+    Task SaveAsync(LifecycleRegistrationRecord record, CancellationToken ct);
+}
+
+internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistrationStore
 {
     private readonly string _connectionString;
     private readonly SemaphoreSlim _initializeGate = new(1, 1);
