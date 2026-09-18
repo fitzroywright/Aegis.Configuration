@@ -106,13 +106,13 @@ app.MapGet("/runbooks/{applicationId}", async (string applicationId, IConfigurat
 
 app.MapGet("/api/bootstrap/credentials", async (HttpContext context, BootstrapCredentialStore credentials, CancellationToken ct) =>
 {
-    if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+    if (!Has(context, "Configuration.Manage")) return Results.StatusCode(StatusCodes.Status403Forbidden);
     return Results.Ok(await credentials.ListAsync(ct));
 });
 
 app.MapPost("/api/bootstrap/credentials", async (HttpContext context, BootstrapCredentialCreateRequest request, BootstrapCredentialStore credentials, CancellationToken ct) =>
 {
-    if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+    if (!Has(context, "Configuration.Manage")) return Results.StatusCode(StatusCodes.Status403Forbidden);
     BootstrapCredentialCreated created = await credentials.CreateAsync(request, ct);
     context.Response.Headers.CacheControl = "no-store";
     return Results.Ok(created);
@@ -120,7 +120,7 @@ app.MapPost("/api/bootstrap/credentials", async (HttpContext context, BootstrapC
 
 app.MapPost("/api/bootstrap/credentials/{id}/revoke", async (HttpContext context, string id, BootstrapCredentialStore credentials, CancellationToken ct) =>
 {
-    if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+    if (!Has(context, "Configuration.Manage")) return Results.StatusCode(StatusCodes.Status403Forbidden);
     return await credentials.RevokeAsync(id, ct) ? Results.NoContent() : Results.NotFound();
 });
 
