@@ -28,6 +28,7 @@ internal sealed class PostgresLifecycleRegistrationStore
         await EnsureInitializedAsync(ct);
         await using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync(ct);
+        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(ct);
 
         await using var command = new NpgsqlCommand(
             """
@@ -119,7 +120,8 @@ internal sealed class PostgresLifecycleRegistrationStore
                 audit_json = EXCLUDED.audit_json,
                 conflict_installation_id = EXCLUDED.conflict_installation_id;
             """,
-            connection);
+            connection,
+            transaction);
 
         command.Parameters.AddWithValue("registration_id", record.RegistrationId);
         command.Parameters.AddWithValue("application_id", record.ApplicationId);
@@ -146,6 +148,44 @@ internal sealed class PostgresLifecycleRegistrationStore
             (object?)record.ConflictInstallationId ?? DBNull.Value);
 
         await command.ExecuteNonQueryAsync(ct);
+
+        for (int eventIndex = 0; eventIndex < record.Audit.Count; eventIndex++)
+        {
+            LifecycleAuditEvent audit = record.Audit[eventIndex];
+            await using var auditCommand = new NpgsqlCommand(
+                """
+                INSERT INTO aegis_registration_audit
+                (
+                    registration_id, event_index, at_utc, action, actor,
+                    source_ip, user_agent, reason, correlation_id,
+                    previous_state, resulting_state
+                )
+                VALUES
+                (
+                    @registration_id, @event_index, @at_utc, @action, @actor,
+                    @source_ip, @user_agent, @reason, @correlation_id,
+                    @previous_state, @resulting_state
+                )
+                ON CONFLICT (registration_id, event_index) DO NOTHING;
+                """,
+                connection,
+                transaction);
+
+            auditCommand.Parameters.AddWithValue("registration_id", record.RegistrationId);
+            auditCommand.Parameters.AddWithValue("event_index", eventIndex);
+            auditCommand.Parameters.AddWithValue("at_utc", audit.AtUtc);
+            auditCommand.Parameters.AddWithValue("action", audit.Action);
+            auditCommand.Parameters.AddWithValue("actor", audit.Actor);
+            auditCommand.Parameters.AddWithValue("source_ip", (object?)audit.SourceIp ?? DBNull.Value);
+            auditCommand.Parameters.AddWithValue("user_agent", (object?)audit.UserAgent ?? DBNull.Value);
+            auditCommand.Parameters.AddWithValue("reason", (object?)audit.Reason ?? DBNull.Value);
+            auditCommand.Parameters.AddWithValue("correlation_id", (object?)audit.CorrelationId ?? DBNull.Value);
+            auditCommand.Parameters.AddWithValue("previous_state", audit.PreviousState?.ToString() is string previous ? previous : DBNull.Value);
+            auditCommand.Parameters.AddWithValue("resulting_state", audit.ResultingState.ToString());
+            await auditCommand.ExecuteNonQueryAsync(ct);
+        }
+
+        await transaction.CommitAsync(ct);
     }
 
     private async Task EnsureInitializedAsync(CancellationToken ct)
@@ -192,6 +232,44 @@ internal sealed class PostgresLifecycleRegistrationStore
 
                 CREATE INDEX IF NOT EXISTS ix_aegis_registration_last_authenticated
                     ON aegis_registration (last_authenticated_at_utc);
+
+                CREATE TABLE IF NOT EXISTS aegis_registration_audit
+                (
+                    audit_id bigserial PRIMARY KEY,
+                    registration_id text NOT NULL,
+                    event_index integer NOT NULL,
+                    at_utc timestamptz NOT NULL,
+                    action text NOT NULL,
+                    actor text NOT NULL,
+                    source_ip text NULL,
+                    user_agent text NULL,
+                    reason text NULL,
+                    correlation_id text NULL,
+                    previous_state text NULL,
+                    resulting_state text NOT NULL,
+                    CONSTRAINT ux_aegis_registration_audit_event
+                        UNIQUE (registration_id, event_index)
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_aegis_registration_audit_registration
+                    ON aegis_registration_audit (registration_id, event_index);
+
+                CREATE OR REPLACE FUNCTION aegis_registration_audit_immutable()
+                RETURNS trigger
+                LANGUAGE plpgsql
+                AS $
+                BEGIN
+                    RAISE EXCEPTION 'aegis_registration_audit is append-only';
+                END;
+                $;
+
+                DROP TRIGGER IF EXISTS trg_aegis_registration_audit_immutable
+                    ON aegis_registration_audit;
+
+                CREATE TRIGGER trg_aegis_registration_audit_immutable
+                    BEFORE UPDATE OR DELETE ON aegis_registration_audit
+                    FOR EACH ROW
+                    EXECUTE FUNCTION aegis_registration_audit_immutable();
                 """,
                 connection);
 
