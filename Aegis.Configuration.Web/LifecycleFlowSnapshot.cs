@@ -101,7 +101,7 @@ internal static class LifecycleFlowSnapshotBuilder
         DateTimeOffset entered = stageEvent?.AtUtc ?? record.UpdatedAtUtc;
         long ageSeconds = Math.Max(0, (long)(now - entered).TotalSeconds);
 
-        string health = DetermineHealth(record, stage, ageSeconds, latest);
+        string health = DetermineHealth(record, stage, ageSeconds, latest, now);
 
         return new LifecycleFlowJourneyView(
             record.RegistrationId,
@@ -146,7 +146,8 @@ internal static class LifecycleFlowSnapshotBuilder
         LifecycleRegistrationRecord record,
         string stage,
         long ageSeconds,
-        LifecycleAuditEvent? latest)
+        LifecycleAuditEvent? latest,
+        DateTimeOffset now)
     {
         if (record.State is LifecycleRegistrationState.IdentityConflict or
             LifecycleRegistrationState.Rejected or
@@ -163,7 +164,7 @@ internal static class LifecycleFlowSnapshotBuilder
 
             long authAge = Math.Max(
                 0,
-                (long)(DateTimeOffset.UtcNow - record.LastAuthenticatedAtUtc.Value).TotalSeconds);
+                (long)(now - record.LastAuthenticatedAtUtc.Value).TotalSeconds);
 
             if (authAge > 1800) return "Stalled";
             if (authAge > 900) return "Slow";
