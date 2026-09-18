@@ -42,7 +42,7 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                    claim_token_hash, claim_expires_at_utc, credential_hash,
                    created_at_utc, updated_at_utc, approved_at_utc, registered_at_utc,
                    last_authenticated_at_utc, revoked_at_utc, metadata_json,
-                   audit_json, conflict_installation_id
+                   conflict_installation_id
             FROM aegis_registration
             ORDER BY updated_at_utc DESC;
             """,
@@ -52,9 +52,21 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
         var result = new List<LifecycleRegistrationRecord>();
 
         while (await reader.ReadAsync(ct))
-            result.Add(Read(reader));
+            result.Add(ReadBase(reader));
 
-        return result;
+        await reader.CloseAsync();
+
+        IReadOnlyDictionary<string, List<LifecycleAuditEvent>> audit =
+            await LoadAuditMapAsync(connection, ct);
+
+        return result
+            .Select(record => record with
+            {
+                Audit = audit.TryGetValue(record.RegistrationId, out List<LifecycleAuditEvent>? events)
+                    ? events
+                    : []
+            })
+            .ToList();
     }
 
     public async Task<LifecycleRegistrationRecord?> LoadAsync(
@@ -80,7 +92,21 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
         command.Parameters.AddWithValue("id", registrationId);
 
         await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(ct);
-        return await reader.ReadAsync(ct) ? Read(reader) : null;
+        if (!await reader.ReadAsync(ct))
+            return null;
+
+        LifecycleRegistrationRecord record = ReadBase(reader);
+        await reader.CloseAsync();
+
+        IReadOnlyDictionary<string, List<LifecycleAuditEvent>> audit =
+            await LoadAuditMapAsync(connection, ct);
+
+        return record with
+        {
+            Audit = audit.TryGetValue(record.RegistrationId, out List<LifecycleAuditEvent>? events)
+                ? events
+                : []
+        };
     }
 
     public async Task SaveAsync(
@@ -124,7 +150,6 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                 last_authenticated_at_utc = EXCLUDED.last_authenticated_at_utc,
                 revoked_at_utc = EXCLUDED.revoked_at_utc,
                 metadata_json = EXCLUDED.metadata_json,
-                audit_json = EXCLUDED.audit_json,
                 conflict_installation_id = EXCLUDED.conflict_installation_id;
             """,
             connection,
@@ -289,7 +314,7 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
         }
     }
 
-    private static LifecycleRegistrationRecord Read(NpgsqlDataReader reader)
+    private static LifecycleRegistrationRecord ReadBase(NpgsqlDataReader reader)
     {
         string stateText = reader.GetString(4);
         if (!Enum.TryParse(stateText, ignoreCase: true, out LifecycleRegistrationState state))
@@ -301,11 +326,6 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
             string json = reader.GetString(14);
             metadata = JsonNode.Parse(json) as JsonObject;
         }
-
-        string auditJson = reader.GetString(15);
-        List<LifecycleAuditEvent> audit =
-            JsonSerializer.Deserialize<List<LifecycleAuditEvent>>(auditJson, JsonOptions)
-            ?? [];
 
         return new LifecycleRegistrationRecord(
             reader.GetString(0),
@@ -323,9 +343,66 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
             reader.IsDBNull(12) ? null : reader.GetFieldValue<DateTimeOffset>(12),
             reader.IsDBNull(13) ? null : reader.GetFieldValue<DateTimeOffset>(13),
             metadata,
-            audit)
+            [])
         {
-            ConflictInstallationId = reader.IsDBNull(16) ? null : reader.GetString(16)
+            ConflictInstallationId = reader.IsDBNull(15) ? null : reader.GetString(15)
         };
+    }
+
+    private static async Task<IReadOnlyDictionary<string, List<LifecycleAuditEvent>>> LoadAuditMapAsync(
+        NpgsqlConnection connection,
+        CancellationToken ct)
+    {
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT registration_id, event_index, at_utc, action, actor,
+                   source_ip, user_agent, reason, correlation_id,
+                   previous_state, resulting_state
+            FROM aegis_registration_audit
+            ORDER BY registration_id, event_index;
+            """,
+            connection);
+
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(ct);
+        var result = new Dictionary<string, List<LifecycleAuditEvent>>(StringComparer.Ordinal);
+
+        while (await reader.ReadAsync(ct))
+        {
+            string registrationId = reader.GetString(0);
+
+            LifecycleRegistrationState? previous = null;
+            if (!reader.IsDBNull(9))
+            {
+                string previousText = reader.GetString(9);
+                if (Enum.TryParse(previousText, true, out LifecycleRegistrationState parsedPrevious))
+                    previous = parsedPrevious;
+            }
+
+            string resultingText = reader.GetString(10);
+            if (!Enum.TryParse(resultingText, true, out LifecycleRegistrationState resulting))
+                throw new InvalidOperationException(
+                    $"Unknown audit resulting state '{resultingText}' for registration '{registrationId}'.");
+
+            var audit = new LifecycleAuditEvent(
+                reader.GetFieldValue<DateTimeOffset>(2),
+                reader.GetString(3),
+                reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetString(5),
+                reader.IsDBNull(6) ? null : reader.GetString(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7),
+                reader.IsDBNull(8) ? null : reader.GetString(8),
+                previous,
+                resulting);
+
+            if (!result.TryGetValue(registrationId, out List<LifecycleAuditEvent>? list))
+            {
+                list = [];
+                result[registrationId] = list;
+            }
+
+            list.Add(audit);
+        }
+
+        return result;
     }
 }
