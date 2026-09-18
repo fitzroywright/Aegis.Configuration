@@ -143,7 +143,7 @@ internal sealed class LifecycleRegistrationAuthority
                 instanceId.Trim(),
                 installationId.Trim(),
                 LifecycleRegistrationState.Pending,
-                Hash(claim),
+                HashToken(claim),
                 now + _claimLifetime,
                 null,
                 now,
@@ -180,7 +180,7 @@ internal sealed class LifecycleRegistrationAuthority
             if (!IdentityMatches(record, applicationId, instanceId, installationId))
                 return new(record, null, false, false, true, false);
 
-            if (!FixedEquals(record.ClaimTokenHash, claimToken) || DateTimeOffset.UtcNow > record.ClaimExpiresAtUtc)
+            if (!VerifyTokenHash(record.ClaimTokenHash, claimToken) || DateTimeOffset.UtcNow > record.ClaimExpiresAtUtc)
                 return new(record, null, false, false, false, true);
 
             if (record.State is LifecycleRegistrationState.Pending or LifecycleRegistrationState.RecoveryPending)
@@ -200,9 +200,9 @@ internal sealed class LifecycleRegistrationAuthority
             LifecycleRegistrationRecord registered = record with
             {
                 State = LifecycleRegistrationState.Registered,
-                ClaimTokenHash = Hash(Token()),
+                ClaimTokenHash = HashToken(Token()),
                 ClaimExpiresAtUtc = now,
-                CredentialHash = Hash(credential),
+                CredentialHash = HashCredential(credential),
                 RegisteredAtUtc = now,
                 UpdatedAtUtc = now,
                 Audit = [.. record.Audit, Audit("CredentialClaimed", applicationId, null, null, null,
@@ -236,7 +236,7 @@ internal sealed class LifecycleRegistrationAuthority
                 return record;
             if (!string.Equals(record.InstallationId, installationId, StringComparison.Ordinal))
                 return record with { State = LifecycleRegistrationState.IdentityConflict };
-            if (string.IsNullOrWhiteSpace(record.CredentialHash) || !FixedEquals(record.CredentialHash, credential))
+            if (string.IsNullOrWhiteSpace(record.CredentialHash) || !VerifyCredentialHash(record.CredentialHash, credential))
                 return null;
 
             LifecycleRegistrationRecord authenticated = record with
@@ -283,7 +283,7 @@ internal sealed class LifecycleRegistrationAuthority
             LifecycleRegistrationRecord pending = record with
             {
                 State = LifecycleRegistrationState.RecoveryPending,
-                ClaimTokenHash = Hash(claim),
+                ClaimTokenHash = HashToken(claim),
                 ClaimExpiresAtUtc = now + _claimLifetime,
                 UpdatedAtUtc = now,
                 Audit = [.. record.Audit, Audit("RecoveryRequested", actor, sourceIp, userAgent, null,
@@ -360,7 +360,7 @@ internal sealed class LifecycleRegistrationAuthority
             {
                 State = LifecycleRegistrationState.Revoked,
                 CredentialHash = null,
-                ClaimTokenHash = Hash(Token()),
+                ClaimTokenHash = HashToken(Token()),
                 ClaimExpiresAtUtc = now,
                 RevokedAtUtc = now,
                 UpdatedAtUtc = now,
@@ -395,7 +395,7 @@ internal sealed class LifecycleRegistrationAuthority
             {
                 State = LifecycleRegistrationState.Purged,
                 CredentialHash = null,
-                ClaimTokenHash = Hash(Token()),
+                ClaimTokenHash = HashToken(Token()),
                 ClaimExpiresAtUtc = now,
                 UpdatedAtUtc = now,
                 ConflictInstallationId = null,
@@ -490,12 +490,79 @@ internal sealed class LifecycleRegistrationAuthority
     }
 
     private static string Token() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(48));
-    private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
-    private static bool FixedEquals(string hash, string value)
+
+    private static string HashToken(string value)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+
+    private static bool VerifyTokenHash(string hash, string value)
     {
-        byte[] left = Convert.FromHexString(hash);
-        byte[] right = SHA256.HashData(Encoding.UTF8.GetBytes(value));
-        return CryptographicOperations.FixedTimeEquals(left, right);
+        try
+        {
+            byte[] left = Convert.FromHexString(hash);
+            byte[] right = SHA256.HashData(Encoding.UTF8.GetBytes(value));
+            return CryptographicOperations.FixedTimeEquals(left, right);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string HashCredential(string credential)
+    {
+        const int iterations = 210_000;
+        byte[] salt = RandomNumberGenerator.GetBytes(32);
+        byte[] hash = Rfc2898DeriveBytes.Pbkdf2(
+            credential,
+            salt,
+            iterations,
+            HashAlgorithmName.SHA256,
+            32);
+
+        return "PBKDF2-SHA256$" + iterations + "$" + Convert.ToBase64String(salt) + "$" + Convert.ToBase64String(hash);
+    }
+
+    private static bool VerifyCredentialHash(string encoded, string credential)
+    {
+        try
+        {
+            string[] parts = encoded.Split('
+    private static bool IdentityMatches(LifecycleRegistrationRecord r, string app, string instance, string installation)
+        => string.Equals(r.ApplicationId, app, StringComparison.OrdinalIgnoreCase) &&
+           string.Equals(r.InstanceId, instance, StringComparison.OrdinalIgnoreCase) &&
+           string.Equals(r.InstallationId, installation, StringComparison.Ordinal);
+    private static void Validate(string app, string instance, string installation)
+    {
+        if (string.IsNullOrWhiteSpace(app) || string.IsNullOrWhiteSpace(instance) || string.IsNullOrWhiteSpace(installation))
+            throw new ArgumentException("ApplicationId, InstanceId and InstallationId are required.");
+        if (app.Length > 160 || instance.Length > 160 || installation.Length > 256)
+            throw new ArgumentException("Registration identity exceeds the permitted length.");
+    }
+    private static LifecycleAuditEvent Audit(string action, string actor, string? ip, string? agent, string? reason,
+        string? correlation, LifecycleRegistrationState? previous, LifecycleRegistrationState resulting)
+        => new(DateTimeOffset.UtcNow, action, actor, ip, agent, reason, correlation, previous, resulting);
+}
+);
+            if (parts.Length != 4 ||
+                !string.Equals(parts[0], "PBKDF2-SHA256", StringComparison.Ordinal))
+                return false;
+
+            int iterations = int.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture);
+            byte[] salt = Convert.FromBase64String(parts[2]);
+            byte[] expected = Convert.FromBase64String(parts[3]);
+            byte[] actual = Rfc2898DeriveBytes.Pbkdf2(
+                credential,
+                salt,
+                iterations,
+                HashAlgorithmName.SHA256,
+                expected.Length);
+
+            return CryptographicOperations.FixedTimeEquals(actual, expected);
+        }
+        catch
+        {
+            return false;
+        }
     }
     private static bool IdentityMatches(LifecycleRegistrationRecord r, string app, string instance, string installation)
         => string.Equals(r.ApplicationId, app, StringComparison.OrdinalIgnoreCase) &&
