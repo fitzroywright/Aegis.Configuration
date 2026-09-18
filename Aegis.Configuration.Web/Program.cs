@@ -252,10 +252,36 @@ app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationCo
     if (!validation.IsValid)
     {
         registrationLogger.LogWarning("Configuration contract validation failed.");
+
+        if (!string.IsNullOrWhiteSpace(installationId))
+        {
+            await lifecycleAuthority.RecordOperationalEventAsync(
+                contract.ApplicationId,
+                contract.InstanceId,
+                installationId,
+                "ConfigurationContractRejected",
+                "Configuration contract validation failed.",
+                attemptId,
+                ct);
+        }
+
         return Results.BadRequest(validation);
     }
     ConfigurationContractRegistrationResult registration = await store.RegisterAsync(contract, ct);
     registrationLogger.LogInformation("Configuration contract registration succeeded. Changed={Changed}.", registration.Changed);
+
+    if (!string.IsNullOrWhiteSpace(installationId))
+    {
+        await lifecycleAuthority.RecordOperationalEventAsync(
+            contract.ApplicationId,
+            contract.InstanceId,
+            installationId,
+            "ConfigurationContractPublished",
+            registration.Changed ? "Configuration contract accepted with changes." : "Configuration contract accepted with no material changes.",
+            attemptId,
+            ct);
+    }
+
     return Results.Ok(new { registered = true, registration.ApplicationId, registration.Version, registration.Changed, registration.LastRegisteredAtUtc });
 });
 
