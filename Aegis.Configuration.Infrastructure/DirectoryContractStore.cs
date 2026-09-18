@@ -81,6 +81,84 @@ public sealed class DirectoryContractStore(string directoryPath) : IConfiguratio
         return new(contract.ApplicationId, contract.Version, changed, hash, stamped.LastRegisteredAtUtc.Value);
     }
 
+    public async ValueTask<bool> RetireAsync(string applicationId, string reason, CancellationToken cancellationToken = default)
+    {
+        string safeApplicationId = EnsureSafeApplicationId(applicationId);
+        string activePath = Path.Combine(directoryPath, $"{safeApplicationId}.configuration-contract.json");
+        if (!File.Exists(activePath)) return false;
+
+        string retiredDirectory = Path.Combine(directoryPath, "retired");
+        Directory.CreateDirectory(retiredDirectory);
+        string retiredPath = Path.Combine(
+            retiredDirectory,
+            $"{safeApplicationId}.{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}.{SanitizeReason(reason)}.configuration-contract.json");
+
+        await Task.Yield();
+        File.Move(activePath, retiredPath, false);
+        return true;
+    }
+
+    public async ValueTask<bool> PurgeAsync(string applicationId, CancellationToken cancellationToken = default)
+    {
+        string safeApplicationId = EnsureSafeApplicationId(applicationId);
+        bool removed = false;
+        string activePath = Path.Combine(directoryPath, $"{safeApplicationId}.configuration-contract.json");
+        if (File.Exists(activePath))
+        {
+            File.Delete(activePath);
+            removed = true;
+        }
+
+        string retiredDirectory = Path.Combine(directoryPath, "retired");
+        if (Directory.Exists(retiredDirectory))
+        {
+            foreach (string path in Directory.EnumerateFiles(
+                retiredDirectory,
+                $"{safeApplicationId}.*.configuration-contract.json",
+                SearchOption.TopDirectoryOnly))
+            {
+                File.Delete(path);
+                removed = true;
+            }
+        }
+
+        await Task.Yield();
+        return removed;
+    }
+
+    public async ValueTask<IReadOnlyList<string>> ReconcileAsync(
+        IReadOnlyCollection<string> activeApplicationIds,
+        CancellationToken cancellationToken = default)
+    {
+        HashSet<string> active = activeApplicationIds
+            .Where(IsSafeApplicationId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        List<string> retired = [];
+        if (!Directory.Exists(directoryPath)) return retired;
+
+        foreach (string path in Directory.EnumerateFiles(directoryPath, "*.configuration-contract.json", SearchOption.TopDirectoryOnly))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await using FileStream stream = File.OpenRead(path);
+            ApplicationConfigurationContract? contract =
+                await JsonSerializer.DeserializeAsync<ApplicationConfigurationContract>(stream, jsonOptions, cancellationToken);
+            if (contract is null || IsRetiredPublisher(contract.ApplicationId) || active.Contains(contract.ApplicationId))
+                continue;
+
+            if (await RetireAsync(contract.ApplicationId, "orphaned", cancellationToken))
+                retired.Add(contract.ApplicationId);
+        }
+
+        return retired;
+    }
+
+    private static string SanitizeReason(string reason)
+    {
+        string value = string.IsNullOrWhiteSpace(reason) ? "retired" : reason.Trim().ToLowerInvariant();
+        return new string(value.Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray()).Trim('-');
+    }
+
     private static byte[] SemanticBytes(ApplicationConfigurationContract contract)
         => JsonSerializer.SerializeToUtf8Bytes(contract with { LastRegisteredAtUtc = null, RuntimeEnvironment = null }, jsonOptions);
 
