@@ -124,6 +124,62 @@ public sealed class DirectoryContractStoreRegistrationTests
     }
 
     [Fact]
+    public async Task RetireRemovesContractFromActiveApplicationList()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"aegis-configuration-{Guid.NewGuid():N}");
+        try
+        {
+            CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+            DirectoryContractStore store = new(directory);
+            await store.RegisterAsync(CreateContract("Demo.App", "1.0.0", "Service:Url", true), cancellationToken);
+
+            Assert.True(await store.RetireAsync("Demo.App", "revoked", cancellationToken));
+            Assert.Empty(await store.LoadAllAsync(cancellationToken));
+            Assert.NotEmpty(Directory.EnumerateFiles(Path.Combine(directory, "retired"), "Demo.App.*.configuration-contract.json"));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task PurgeRemovesActiveAndRetiredCopies()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"aegis-configuration-{Guid.NewGuid():N}");
+        try
+        {
+            CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+            DirectoryContractStore store = new(directory);
+            await store.RegisterAsync(CreateContract("Demo.App", "1.0.0", "Service:Url", true), cancellationToken);
+            await store.RetireAsync("Demo.App", "revoked", cancellationToken);
+
+            Assert.True(await store.PurgeAsync("Demo.App", cancellationToken));
+            Assert.Empty(await store.LoadAllAsync(cancellationToken));
+            Assert.Empty(Directory.EnumerateFiles(Path.Combine(directory, "retired"), "Demo.App.*.configuration-contract.json"));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task ReconcileRetiresContractsWithoutActiveRegistration()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"aegis-configuration-{Guid.NewGuid():N}");
+        try
+        {
+            CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+            DirectoryContractStore store = new(directory);
+            await store.RegisterAsync(CreateContract("Active.App", "1.0.0", "Service:Url", true), cancellationToken);
+            await store.RegisterAsync(CreateContract("Orphan.App", "1.0.0", "Service:Url", true), cancellationToken);
+
+            IReadOnlyList<string> retired = await store.ReconcileAsync(["Active.App"], cancellationToken);
+            IReadOnlyList<ApplicationConfigurationContract> active = await store.LoadAllAsync(cancellationToken);
+
+            Assert.Contains("Orphan.App", retired);
+            Assert.Single(active);
+            Assert.Equal("Active.App", active[0].ApplicationId);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task RegisterRejectsUnsafeApplicationId()
     {
         string directory = Path.Combine(Path.GetTempPath(), $"aegis-configuration-{Guid.NewGuid():N}");
