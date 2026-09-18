@@ -12,6 +12,7 @@ WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 string contractDirectory = builder.Configuration["AegisConfiguration:ContractDirectory"] ?? "/var/lib/aegis/configuration/contracts";
 string instructionDirectory = builder.Configuration["AegisConfiguration:InstructionDirectory"] ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "instruction-packs"));
+string bootstrapCredentialFile = builder.Configuration["AegisConfiguration:BootstrapCredentialFile"] ?? "/var/lib/aegis/configuration/bootstrap-credentials.json";
 builder.Services.AddCommonSecrets(builder.Configuration);
 builder.Services.AddSuiteSecurity();
 DirectoryContractStore contractStore = new(contractDirectory);
@@ -23,6 +24,7 @@ builder.Services.AddSingleton<ConfigurationEvaluator>();
 builder.Services.AddSingleton<CommissioningService>();
 builder.Services.AddSingleton<CommissioningReportRenderer>();
 builder.Services.AddSingleton<ContractValidator>();
+builder.Services.AddSingleton(new BootstrapCredentialStore(bootstrapCredentialFile));
 WebApplication app = builder.Build();
 app.UseSuiteSecurity();
 app.MapSuiteSecurity();
@@ -102,7 +104,27 @@ app.MapGet("/runbooks/{applicationId}", async (string applicationId, IConfigurat
     return Html(ConfigurationShell.Render("Runbook", $"<section class='page-head'><div><h1>{E(contract.DisplayName)} Runbook</h1><p>Commissioning guidance for {E(contract.ApplicationId)}</p></div></section><section class='panel'><h2>Configuration Contract</h2><p>Version {E(contract.Version)} · Site {E(contract.SiteId)} · Instance {E(contract.InstanceId)}</p><a class='primary' href='/applications/{Uri.EscapeDataString(contract.ApplicationId)}'>Back to application</a></section>", "runbooks"));
 });
 
-app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationConfigurationContract contract, IConfigurationContractRegistrationStore store, ContractValidator validator, IConfiguration configuration, ILoggerFactory loggerFactory, CancellationToken ct) =>
+app.MapGet("/api/bootstrap/credentials", async (HttpContext context, BootstrapCredentialStore credentials, CancellationToken ct) =>
+{
+    if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+    return Results.Ok(await credentials.ListAsync(ct));
+});
+
+app.MapPost("/api/bootstrap/credentials", async (HttpContext context, BootstrapCredentialCreateRequest request, BootstrapCredentialStore credentials, CancellationToken ct) =>
+{
+    if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+    BootstrapCredentialCreated created = await credentials.CreateAsync(request, ct);
+    context.Response.Headers.CacheControl = "no-store";
+    return Results.Ok(created);
+});
+
+app.MapPost("/api/bootstrap/credentials/{id}/revoke", async (HttpContext context, string id, BootstrapCredentialStore credentials, CancellationToken ct) =>
+{
+    if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+    return await credentials.RevokeAsync(id, ct) ? Results.NoContent() : Results.NotFound();
+});
+
+app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationConfigurationContract contract, IConfigurationContractRegistrationStore store, ContractValidator validator, BootstrapCredentialStore credentials, ILoggerFactory loggerFactory, CancellationToken ct) =>
 {
     ILogger registrationLogger = loggerFactory.CreateLogger("Aegis.Configuration.Registration");
     string attemptId = context.Request.Headers["X-Aegis-Registration-Attempt-Id"].ToString();
@@ -115,74 +137,49 @@ app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationCo
         ["Stage"] = "ContractRegistration"
     });
     registrationLogger.LogInformation("Configuration contract registration request received.");
-    string? configuredKey = configuration["AegisConfiguration:RegistrationKey"];
-    if (string.IsNullOrWhiteSpace(configuredKey))
-    {
-        registrationLogger.LogWarning("Configuration contract registration cannot continue because the Operations registration credential is not configured.");
-        return Results.Problem("Application registration is disabled because no registration credential is configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
-    }
     string supplied = context.Request.Headers["X-Aegis-Registration-Key"].ToString();
-    if (!FixedEquals(configuredKey, supplied))
+    if (!await credentials.ValidateAsync(supplied, ct))
     {
-        registrationLogger.LogWarning("Configuration contract registration rejected because the supplied credential is invalid.");
+        registrationLogger.LogWarning("Configuration contract registration rejected because the supplied Operations bootstrap credential is invalid, expired, or revoked.");
         return Results.Unauthorized();
     }
-    registrationLogger.LogInformation("Configuration registration credential accepted.");
+    registrationLogger.LogInformation("Configuration bootstrap credential accepted.");
     var validation = validator.Validate(contract);
     if (!validation.IsValid)
     {
         registrationLogger.LogWarning("Configuration contract validation failed.");
         return Results.BadRequest(validation);
     }
-    registrationLogger.LogInformation("Configuration contract validation succeeded.");
     ConfigurationContractRegistrationResult registration = await store.RegisterAsync(contract, ct);
     registrationLogger.LogInformation("Configuration contract registration succeeded. Changed={Changed}.", registration.Changed);
     return Results.Ok(new { registered = true, registration.ApplicationId, registration.Version, registration.Changed, registration.LastRegisteredAtUtc });
 });
 
-app.MapPost("/api/contracts/{applicationId}/retire", async (HttpContext context, string applicationId, DirectoryContractStore store, IConfiguration configuration, CancellationToken ct) =>
+app.MapPost("/api/contracts/{applicationId}/retire", async (HttpContext context, string applicationId, DirectoryContractStore store, BootstrapCredentialStore credentials, CancellationToken ct) =>
 {
-    string? configuredKey = configuration["AegisConfiguration:RegistrationKey"];
-    if (string.IsNullOrWhiteSpace(configuredKey))
-        return Results.Problem("Contract lifecycle management is disabled because no Operations registration credential is configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
-    string supplied = context.Request.Headers["X-Aegis-Registration-Key"].ToString();
-    if (!FixedEquals(configuredKey, supplied)) return Results.Unauthorized();
-
+    if (!await credentials.ValidateAsync(context.Request.Headers["X-Aegis-Registration-Key"].ToString(), ct)) return Results.Unauthorized();
     string reason = context.Request.Query["reason"].ToString();
     bool retired = await store.RetireAsync(applicationId, string.IsNullOrWhiteSpace(reason) ? "revoked" : reason, ct);
     return retired ? Results.Ok(new { applicationId, retired = true }) : Results.NotFound();
 });
 
-app.MapDelete("/api/contracts/{applicationId}", async (HttpContext context, string applicationId, DirectoryContractStore store, IConfiguration configuration, CancellationToken ct) =>
+app.MapDelete("/api/contracts/{applicationId}", async (HttpContext context, string applicationId, DirectoryContractStore store, BootstrapCredentialStore credentials, CancellationToken ct) =>
 {
-    string? configuredKey = configuration["AegisConfiguration:RegistrationKey"];
-    if (string.IsNullOrWhiteSpace(configuredKey))
-        return Results.Problem("Contract lifecycle management is disabled because no Operations registration credential is configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
-    string supplied = context.Request.Headers["X-Aegis-Registration-Key"].ToString();
-    if (!FixedEquals(configuredKey, supplied)) return Results.Unauthorized();
-
+    if (!await credentials.ValidateAsync(context.Request.Headers["X-Aegis-Registration-Key"].ToString(), ct)) return Results.Unauthorized();
     bool purged = await store.PurgeAsync(applicationId, ct);
     return purged ? Results.NoContent() : Results.NotFound();
 });
 
-app.MapPost("/api/contracts/reconcile", async (HttpContext context, string[] activeApplicationIds, DirectoryContractStore store, IConfiguration configuration, CancellationToken ct) =>
+app.MapPost("/api/contracts/reconcile", async (HttpContext context, string[] activeApplicationIds, DirectoryContractStore store, BootstrapCredentialStore credentials, CancellationToken ct) =>
 {
-    string? configuredKey = configuration["AegisConfiguration:RegistrationKey"];
-    if (string.IsNullOrWhiteSpace(configuredKey))
-        return Results.Problem("Contract reconciliation is disabled because no Operations registration credential is configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
-    string supplied = context.Request.Headers["X-Aegis-Registration-Key"].ToString();
-    if (!FixedEquals(configuredKey, supplied)) return Results.Unauthorized();
-
+    if (!await credentials.ValidateAsync(context.Request.Headers["X-Aegis-Registration-Key"].ToString(), ct)) return Results.Unauthorized();
     IReadOnlyList<string> retired = await store.ReconcileAsync(activeApplicationIds, ct);
     return Results.Ok(new { active = activeApplicationIds.Length, retired });
 });
 
-app.MapGet("/api/contracts/discovery", async (HttpContext context, IConfigurationContractStore store, IConfiguration configuration, CancellationToken ct) =>
+app.MapGet("/api/contracts/discovery", async (HttpContext context, IConfigurationContractStore store, BootstrapCredentialStore credentials, CancellationToken ct) =>
 {
-    string? configuredKey = configuration["AegisConfiguration:RegistrationKey"];
-    if (string.IsNullOrWhiteSpace(configuredKey)) return Results.Problem("Application discovery is disabled because no registration credential is configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
-    string supplied = context.Request.Headers["X-Aegis-Registration-Key"].ToString();
-    if (!FixedEquals(configuredKey, supplied)) return Results.Unauthorized();
+    if (!await credentials.ValidateAsync(context.Request.Headers["X-Aegis-Registration-Key"].ToString(), ct)) return Results.Unauthorized();
     IReadOnlyList<ApplicationConfigurationContract> contracts = await store.LoadAllAsync(ct);
     context.Response.Headers.CacheControl = "no-store";
     return Results.Ok(contracts);
