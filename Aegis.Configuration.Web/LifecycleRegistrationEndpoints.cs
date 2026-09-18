@@ -217,11 +217,14 @@ internal static class LifecycleRegistrationEndpoints
 
         app.MapGet("/api/registration/requests", async (
             HttpContext context,
+            bool? includePurged,
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
             if (!Has(context, "Configuration.Manage")) return Results.Forbid();
-            IReadOnlyList<LifecycleRegistrationRecord> records = await authority.ListAsync(ct);
+            IReadOnlyList<LifecycleRegistrationRecord> records = includePurged == true
+                ? await authority.ListAllAsync(ct)
+                : await authority.ListAsync(ct);
             return Results.Ok(records.Select(x => new
             {
                 x.RegistrationId,
