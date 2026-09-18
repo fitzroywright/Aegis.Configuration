@@ -229,6 +229,36 @@ public sealed class LifecycleRegistrationAuthorityTests
     }
 
 
+
+    [Fact]
+    public async Task AuthenticationWithWrongInstallationId_PersistsResolvableConflict()
+    {
+        var store = new InMemoryLifecycleRegistrationStore();
+        LifecycleRegistrationAuthority authority = CreateAuthority(store);
+
+        (LifecycleRegistrationRecord registered, string credential) =
+            await RegisterAsync(authority, "install-original");
+
+        LifecycleRegistrationRecord? conflict = await authority.AuthenticateAsync(
+            "Aegis.Hello",
+            "Production",
+            "install-clone",
+            credential,
+            "corr-conflict",
+            CancellationToken.None);
+
+        Assert.NotNull(conflict);
+        Assert.Equal(LifecycleRegistrationState.IdentityConflict, conflict!.State);
+        Assert.Equal("install-clone", conflict.ConflictInstallationId);
+        Assert.Contains(conflict.Audit, x => x.Action == "IdentityConflictAuthentication");
+
+        LifecycleRegistrationRecord? persisted =
+            await store.LoadAsync(registered.RegistrationId, CancellationToken.None);
+
+        Assert.Equal(LifecycleRegistrationState.IdentityConflict, persisted!.State);
+        Assert.Equal("install-clone", persisted.ConflictInstallationId);
+    }
+
     [Fact]
     public async Task ReplaceIncomingConflict_RetiresOldIdentity_AndAllowsFreshPending()
     {
