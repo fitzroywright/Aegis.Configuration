@@ -228,6 +228,50 @@ public sealed class LifecycleRegistrationAuthorityTests
         Assert.Contains(history[0].Audit, x => x.Action == "Purged");
     }
 
+
+    [Fact]
+    public async Task ReplaceIncomingConflict_RetiresOldIdentity_AndAllowsFreshPending()
+    {
+        var store = new InMemoryLifecycleRegistrationStore();
+        LifecycleRegistrationAuthority authority = CreateAuthority(store);
+
+        LifecycleIntroductionResult original = await authority.IntroduceAsync(
+            "Aegis.Hello", "Production", "install-old", null,
+            "intro", null, null, "corr-1", CancellationToken.None);
+
+        LifecycleIntroductionResult conflict = await authority.IntroduceAsync(
+            "Aegis.Hello", "Production", "install-new", null,
+            "intro", null, null, "corr-2", CancellationToken.None);
+
+        Assert.True(conflict.Conflict);
+        Assert.Equal(LifecycleRegistrationState.IdentityConflict, conflict.Record.State);
+
+        LifecycleRegistrationRecord? retired =
+            await authority.ReplaceWithConflictingIdentityAsync(
+                original.Record.RegistrationId,
+                "administrator",
+                "10.10.0.1",
+                "browser",
+                "replace machine",
+                "corr-3",
+                CancellationToken.None);
+
+        Assert.Equal(LifecycleRegistrationState.Purged, retired!.State);
+        Assert.Contains(
+            retired.Audit,
+            x => x.Action == "IdentityConflictResolvedReplaceWithIncoming");
+
+        LifecycleIntroductionResult replacement = await authority.IntroduceAsync(
+            "Aegis.Hello", "Production", "install-new", null,
+            "intro", null, null, "corr-4", CancellationToken.None);
+
+        Assert.True(replacement.Created);
+        Assert.False(replacement.Conflict);
+        Assert.Equal(LifecycleRegistrationState.Pending, replacement.Record.State);
+        Assert.NotEqual(original.Record.RegistrationId, replacement.Record.RegistrationId);
+        Assert.NotNull(replacement.ClaimToken);
+    }
+
     [Fact]
     public async Task PurgeBeforeRevokeOrReject_IsRejected()
     {
