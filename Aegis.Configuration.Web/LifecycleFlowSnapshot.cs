@@ -154,13 +154,32 @@ internal static class LifecycleFlowSnapshotBuilder
             LifecycleRegistrationState.Revoked)
             return "Failed";
 
-        if (string.Equals(latest?.Action, "ConfigurationContractRejected", StringComparison.OrdinalIgnoreCase))
+        LifecycleAuditEvent? latestContractEvent = record.Audit
+            .Where(x =>
+                string.Equals(x.Action, "ConfigurationContractPublished", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(x.Action, "ConfigurationContractRejected", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(x => x.AtUtc)
+            .FirstOrDefault();
+
+        if (string.Equals(
+                latestContractEvent?.Action,
+                "ConfigurationContractRejected",
+                StringComparison.OrdinalIgnoreCase))
+        {
             return "Failed";
+        }
 
         if (record.State == LifecycleRegistrationState.Registered)
         {
             if (!record.LastAuthenticatedAtUtc.HasValue)
                 return "Slow";
+
+            if (latestContractEvent is null &&
+                record.RegisteredAtUtc.HasValue &&
+                now - record.RegisteredAtUtc.Value > TimeSpan.FromMinutes(2))
+            {
+                return "Slow";
+            }
 
             long authAge = Math.Max(
                 0,
