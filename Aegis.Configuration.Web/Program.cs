@@ -391,11 +391,40 @@ app.MapDelete("/api/contracts/{applicationId}", async (HttpContext context, stri
     return purged ? Results.NoContent() : Results.NotFound();
 });
 
-app.MapPost("/api/contracts/reconcile", async (HttpContext context, string[] activeApplicationIds, DirectoryContractStore store, OperationsRegistrationAuthority authority, CancellationToken ct) =>
+app.MapPost("/api/contracts/reconcile", async (
+    HttpContext context,
+    string[] activeApplicationIds,
+    DirectoryContractStore store,
+    OperationsRegistrationAuthority authority,
+    LifecycleRegistrationAuthority lifecycleAuthority,
+    CancellationToken ct) =>
 {
     if (!await authority.ValidateOperationsAsync(context.Request, ct)) return Results.Unauthorized();
-    IReadOnlyList<string> retired = await store.ReconcileAsync(activeApplicationIds, ct);
-    return Results.Ok(new { active = activeApplicationIds.Length, retired });
+
+    HashSet<string> authoritativeActive = activeApplicationIds
+        .Where(x => !string.IsNullOrWhiteSpace(x))
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    IReadOnlyList<LifecycleRegistrationRecord> lifecycleRegistrations =
+        await lifecycleAuthority.ListAsync(ct);
+
+    foreach (LifecycleRegistrationRecord registration in lifecycleRegistrations)
+    {
+        if (registration.State == LifecycleRegistrationState.Registered)
+            authoritativeActive.Add(registration.ApplicationId);
+    }
+
+    IReadOnlyList<string> retired = await store.ReconcileAsync(
+        authoritativeActive.ToArray(),
+        ct);
+
+    return Results.Ok(new
+    {
+        active = authoritativeActive.Count,
+        controlPlaneActive = activeApplicationIds.Length,
+        lifecycleActive = lifecycleRegistrations.Count(x => x.State == LifecycleRegistrationState.Registered),
+        retired
+    });
 });
 
 app.MapGet("/api/contracts/discovery", async (HttpContext context, IConfigurationContractStore store, OperationsRegistrationAuthority authority, CancellationToken ct) =>
