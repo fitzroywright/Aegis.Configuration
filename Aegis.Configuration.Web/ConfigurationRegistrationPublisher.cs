@@ -74,6 +74,7 @@ internal sealed class ConfigurationRegistrationPublisher(
             ["applicationId"] = ApplicationId,
             ["displayName"] = "Aegis Configuration",
             ["version"] = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "unknown",
+            ["runbookReference"] = "docs/RUNBOOK.md",
             ["siteId"] = NullIfBlank(configuration["Site:Id"]),
             ["instanceId"] = instanceId,
             ["runtimeEnvironment"] = new JsonObject
