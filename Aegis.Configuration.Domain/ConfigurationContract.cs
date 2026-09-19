@@ -122,7 +122,8 @@ public sealed record ConfigurationEvaluation(string ApplicationId, string Versio
         RequirementEvaluation[] required = Requirements.Where(x => x.Required).ToArray();
         RequirementEvaluation[] optional = Requirements.Where(x => !x.Required).ToArray();
         static bool Present(RequirementEvaluation x) =>
-            x.State is ConfigurationState.Configured or ConfigurationState.Default or ConfigurationState.Disabled;
+            x.State is ConfigurationState.Configured or ConfigurationState.Default ||
+            (!x.Required && x.State == ConfigurationState.Disabled);
 
         return new(
             ApplicationId,
