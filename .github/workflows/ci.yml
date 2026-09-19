@@ -32,7 +32,15 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Test
+      - name: Test Debug
+        working-directory: Aegis.Configuration
+        run: dotnet test Aegis.Configuration.Tests/Aegis.Configuration.Tests.csproj --configuration Debug
+
+      - name: Build Web Debug
+        working-directory: Aegis.Configuration
+        run: dotnet build Aegis.Configuration.Web/Aegis.Configuration.Web.csproj --configuration Debug
+
+      - name: Test Release
         working-directory: Aegis.Configuration
         shell: bash
         run: |
@@ -41,7 +49,7 @@ jobs:
           code=${PIPESTATUS[0]}
           exit "$code"
 
-      - name: Build Web
+      - name: Build Web Release
         working-directory: Aegis.Configuration
         shell: bash
         run: |
