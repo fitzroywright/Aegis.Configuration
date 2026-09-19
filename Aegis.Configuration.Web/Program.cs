@@ -418,7 +418,7 @@ app.MapGet("/runbooks", async (
     string rows = artifacts.Count == 0
         ? "<div class='empty'>No generated runbooks yet. A runbook is created automatically after a successful authenticated contract publication.</div>"
         : string.Join("", artifacts.Select(x =>
-            $"<div class='req'><span><b>{E(x.ApplicationId)}</b><small>Generated {x.LastUpdatedUtc:u}</small></span><a href='/runbooks/{Uri.EscapeDataString(x.ApplicationId)}'>Open Runbook</a><i class='ok'>✓</i></div>"));
+            $"<div class='req'><span><b>{E(x.ApplicationId)}</b><small>Generated <time class='local-datetime' datetime='{E(x.LastUpdatedUtc.ToString("O"))}'>{E(x.LastUpdatedUtc.ToString("u"))}</time></small></span><a href='/runbooks/{Uri.EscapeDataString(x.ApplicationId)}'>Open Runbook</a><i class='ok'>✓</i></div>"));
 
     string content =
         "<section class='page-head'><div><h1>Configuration Runbooks</h1><p>Automatically generated operational artifacts from authenticated application contracts.</p></div></section>" +
@@ -456,7 +456,9 @@ app.Run();
 static bool Has(HttpContext c, string permission) => c.Items.TryGetValue("SuiteIdentity", out object? value) && value is SuiteIdentity i && i.Permissions.Contains(permission, StringComparer.OrdinalIgnoreCase);
 static IResult Html(string html) => Results.Content(html, "text/html; charset=utf-8");
 static string E(string? value) => HtmlEncoder.Default.Encode(value ?? "—");
-static string Registered(DateTimeOffset? value, string format) => value.HasValue ? value.Value.ToString(format) + " UTC" : "Never";
+static string Registered(DateTimeOffset? value, string format) => value.HasValue
+    ? $"<time class='local-datetime' datetime='{E(value.Value.ToString("O"))}'>{E(value.Value.ToString(format))}</time>"
+    : "Never";
 
 static string RenderDashboard(List<(ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation)> rows, int? selectedIndex, int orphanedContracts = 0)
 {
