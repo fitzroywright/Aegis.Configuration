@@ -325,7 +325,7 @@ public sealed class LifecycleRegistrationAuthorityTests
 
         LifecycleIntroductionResult[] results = await Task.WhenAll(attempts);
 
-        Assert.Single(results.Where(x => x.Created));
+        Assert.Single(results, x => x.Created);
         Assert.All(results, x => Assert.False(x.Conflict));
         Assert.Single(results.Select(x => x.Record.RegistrationId).Distinct());
         Assert.Single(await store.LoadAllAsync(CancellationToken.None));
