@@ -302,6 +302,91 @@ public sealed class LifecycleRegistrationAuthorityTests
         Assert.NotNull(replacement.ClaimToken);
     }
 
+
+    [Fact]
+    public async Task ConcurrentDuplicateIntroductions_ProduceOnePendingRegistration()
+    {
+        var store = new InMemoryLifecycleRegistrationStore();
+        LifecycleRegistrationAuthority authority = CreateAuthority(store);
+
+        Task<LifecycleIntroductionResult>[] attempts =
+            Enumerable.Range(0, 12)
+                .Select(i => authority.IntroduceAsync(
+                    "Aegis.Hello",
+                    "Production",
+                    "install-concurrent",
+                    new JsonObject { ["attempt"] = i },
+                    "intro",
+                    "10.10.0.10",
+                    "test",
+                    "corr-" + i,
+                    CancellationToken.None))
+                .ToArray();
+
+        LifecycleIntroductionResult[] results = await Task.WhenAll(attempts);
+
+        Assert.Single(results.Where(x => x.Created));
+        Assert.All(results, x => Assert.False(x.Conflict));
+        Assert.Single(results.Select(x => x.Record.RegistrationId).Distinct());
+        Assert.Single(await store.LoadAllAsync(CancellationToken.None));
+        Assert.Equal(
+            LifecycleRegistrationState.Pending,
+            (await store.LoadAllAsync(CancellationToken.None)).Single().State);
+    }
+
+    [Fact]
+    public async Task ExpiredApprovedClaim_IsRejectedWithoutIssuingCredential()
+    {
+        var store = new InMemoryLifecycleRegistrationStore();
+        LifecycleRegistrationAuthority authority = CreateAuthority(store);
+
+        LifecycleIntroductionResult introduction = await authority.IntroduceAsync(
+            "Aegis.Hello",
+            "Production",
+            "install-expired",
+            null,
+            "intro",
+            null,
+            null,
+            "corr-intro",
+            CancellationToken.None);
+
+        LifecycleRegistrationRecord? approved = await authority.DecideAsync(
+            introduction.Record.RegistrationId,
+            true,
+            "administrator",
+            null,
+            null,
+            "approve",
+            "corr-approve",
+            CancellationToken.None);
+
+        Assert.NotNull(approved);
+
+        LifecycleRegistrationRecord expired = approved! with
+        {
+            ClaimExpiresAtUtc = DateTimeOffset.UtcNow.AddMinutes(-1)
+        };
+        await store.SaveAsync(expired, CancellationToken.None);
+
+        LifecycleClaimResult claim = await authority.ClaimAsync(
+            introduction.Record.RegistrationId,
+            "Aegis.Hello",
+            "Production",
+            "install-expired",
+            introduction.ClaimToken!,
+            "corr-claim",
+            CancellationToken.None);
+
+        Assert.True(claim.InvalidClaim);
+        Assert.Null(claim.Credential);
+
+        LifecycleRegistrationRecord? persisted =
+            await store.LoadAsync(introduction.Record.RegistrationId, CancellationToken.None);
+        Assert.Equal(LifecycleRegistrationState.Approved, persisted!.State);
+        Assert.Null(persisted.CredentialHash);
+    }
+
     [Fact]
     public async Task PurgeBeforeRevokeOrReject_IsRejected()
     {
