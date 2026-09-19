@@ -17,6 +17,9 @@
     <ProjectReference Include="$(CommonRoot)\Common.Registration\Common.Registration.csproj" AdditionalProperties="Configuration=$(Configuration)" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="../scripts/**/*.sh" Link="scripts/%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <Content Update="contracts\**\*" CopyToPublishDirectory="Never" />
     <None Update="contracts\**\*" CopyToPublishDirectory="Never" />
   </ItemGroup>
