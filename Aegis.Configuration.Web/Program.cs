@@ -25,6 +25,7 @@ builder.Services.AddRateLimiter(options =>
             }));
 });
 string contractDirectory = builder.Configuration["AegisConfiguration:ContractDirectory"] ?? "/var/lib/aegis/configuration/contracts";
+string runbookDirectory = builder.Configuration["AegisConfiguration:RunbookDirectory"] ?? "/var/lib/aegis/configuration/runbooks";
 string instructionDirectory = builder.Configuration["AegisConfiguration:InstructionDirectory"] ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "instruction-packs"));
 builder.Services.AddCommonSecrets(builder.Configuration);
 builder.Services.AddSuiteSecurity();
@@ -43,6 +44,7 @@ builder.Services.AddSingleton(new InstructionPackCatalog(instructionDirectory));
 builder.Services.AddSingleton<ConfigurationEvaluator>();
 builder.Services.AddSingleton<CommissioningService>();
 builder.Services.AddSingleton<CommissioningReportRenderer>();
+builder.Services.AddSingleton(new RunbookArtifactStore(runbookDirectory));
 builder.Services.AddSingleton<ContractValidator>();
 WebApplication app = builder.Build();
 app.Use(async (context, next) =>
@@ -235,7 +237,7 @@ app.MapGet("/runbooks/{applicationId}", async (string applicationId, IConfigurat
     return Html(ConfigurationShell.Render("Runbook", $"<section class='page-head'><div><h1>{E(contract.DisplayName)} Runbook</h1><p>Commissioning guidance for {E(contract.ApplicationId)}</p></div></section><section class='panel'><h2>Configuration Contract</h2><p>Version {E(contract.Version)} · Site {E(contract.SiteId)} · Instance {E(contract.InstanceId)}</p><a class='primary' href='/applications/{Uri.EscapeDataString(contract.ApplicationId)}'>Back to application</a></section>", "runbooks"));
 });
 
-app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationConfigurationContract contract, IConfigurationContractRegistrationStore store, ContractValidator validator, OperationsRegistrationAuthority operationsAuthority, LifecycleRegistrationAuthority lifecycleAuthority, ILoggerFactory loggerFactory, CancellationToken ct) =>
+app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationConfigurationContract contract, IConfigurationContractRegistrationStore store, ContractValidator validator, OperationsRegistrationAuthority operationsAuthority, LifecycleRegistrationAuthority lifecycleAuthority, ConfigurationEvaluator evaluator, CommissioningReportRenderer renderer, RunbookArtifactStore runbooks, ILoggerFactory loggerFactory, CancellationToken ct) =>
 {
     ILogger registrationLogger = loggerFactory.CreateLogger("Aegis.Configuration.Registration");
     string attemptId = context.Request.Headers["X-Aegis-Registration-Attempt-Id"].ToString();
@@ -322,6 +324,25 @@ app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationCo
     ConfigurationContractRegistrationResult registration = await store.RegisterAsync(contract, ct);
     registrationLogger.LogInformation("Configuration contract registration succeeded. Changed={Changed}.", registration.Changed);
 
+    ApplicationConfigurationContract registeredContract = contract with
+    {
+        LastRegisteredAtUtc = registration.LastRegisteredAtUtc
+    };
+    ConfigurationEvaluation runbookEvaluation = await evaluator.EvaluateAsync(registeredContract, ct);
+    DateTimeOffset runbookGeneratedAtUtc = DateTimeOffset.UtcNow;
+    string runbookMarkdown = renderer.RenderOperationalRunbook(
+        registeredContract,
+        runbookEvaluation,
+        runbookGeneratedAtUtc);
+    RunbookArtifact runbook = await runbooks.SaveAsync(
+        contract.ApplicationId,
+        runbookMarkdown,
+        ct);
+    registrationLogger.LogInformation(
+        "Operational runbook generated for {ApplicationId}. File={RunbookFile}.",
+        contract.ApplicationId,
+        runbook.FileName);
+
     if (!string.IsNullOrWhiteSpace(installationId))
     {
         await lifecycleAuthority.RecordOperationalEventAsync(
@@ -332,9 +353,27 @@ app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationCo
             registration.Changed ? "Configuration contract accepted with changes." : "Configuration contract accepted with no material changes.",
             attemptId,
             ct);
+
+        await lifecycleAuthority.RecordOperationalEventAsync(
+            contract.ApplicationId,
+            contract.InstanceId!,
+            installationId,
+            "RunbookGenerated",
+            $"Operational runbook generated at {runbookGeneratedAtUtc:O}.",
+            attemptId,
+            ct);
     }
 
-    return Results.Ok(new { registered = true, registration.ApplicationId, registration.Version, registration.Changed, registration.LastRegisteredAtUtc });
+    return Results.Ok(new
+    {
+        registered = true,
+        registration.ApplicationId,
+        registration.Version,
+        registration.Changed,
+        registration.LastRegisteredAtUtc,
+        runbook = $"/runbooks/{Uri.EscapeDataString(contract.ApplicationId)}",
+        runbookGeneratedAtUtc
+    });
 });
 
 app.MapPost("/api/contracts/{applicationId}/retire", async (HttpContext context, string applicationId, DirectoryContractStore store, OperationsRegistrationAuthority authority, CancellationToken ct) =>
@@ -368,6 +407,40 @@ app.MapGet("/api/contracts/discovery", async (HttpContext context, IConfiguratio
 });
 
 app.MapGet("/api/contracts", async (IConfigurationContractStore store, CancellationToken ct) => Results.Ok(await store.LoadAllAsync(ct)));
+app.MapGet("/runbooks", async (
+    HttpContext context,
+    RunbookArtifactStore runbooks,
+    CancellationToken ct) =>
+{
+    if (!Has(context, "Configuration.View")) return Results.Forbid();
+
+    IReadOnlyList<RunbookArtifact> artifacts = await runbooks.ListAsync(ct);
+    string rows = artifacts.Count == 0
+        ? "<div class='empty'>No generated runbooks yet. A runbook is created automatically after a successful authenticated contract publication.</div>"
+        : string.Join("", artifacts.Select(x =>
+            $"<div class='req'><span><b>{E(x.ApplicationId)}</b><small>Generated {x.LastUpdatedUtc:u}</small></span><a href='/runbooks/{Uri.EscapeDataString(x.ApplicationId)}'>Open Runbook</a><i class='ok'>✓</i></div>"));
+
+    string content =
+        "<section class='page-head'><div><h1>Configuration Runbooks</h1><p>Automatically generated operational artifacts from authenticated application contracts.</p></div></section>" +
+        "<section class='panel'><div class='reqs'>" + rows + "</div></section>";
+
+    return Html(ConfigurationShell.Render("Runbooks", content, "applications"));
+});
+
+app.MapGet("/runbooks/{applicationId}", async (
+    HttpContext context,
+    string applicationId,
+    RunbookArtifactStore runbooks,
+    CancellationToken ct) =>
+{
+    if (!Has(context, "Configuration.View")) return Results.Forbid();
+
+    string? markdown = await runbooks.ReadAsync(applicationId, ct);
+    return markdown is null
+        ? Results.NotFound()
+        : Results.Text(markdown, "text/markdown; charset=utf-8");
+});
+
 app.MapGet("/api/report/{applicationId}", async (string applicationId, IConfigurationContractStore store, ConfigurationEvaluator evaluator, CommissioningReportRenderer renderer, CancellationToken ct) =>
 {
     var contract = (await store.LoadAllAsync(ct)).FirstOrDefault(x => string.Equals(x.ApplicationId, applicationId, StringComparison.OrdinalIgnoreCase));
