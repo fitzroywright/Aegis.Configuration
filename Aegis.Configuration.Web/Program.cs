@@ -51,6 +51,41 @@ app.Use(async (context, next) =>
     {
         await next();
     }
+    catch (NpgsqlException exception)
+        when (context.Request.Path.StartsWithSegments("/api/registration"))
+    {
+        ILogger logger = context.RequestServices
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("Aegis.Configuration.RegistrationDatabase");
+
+        logger.LogError(
+            exception,
+            "Registration authority database is unavailable for {Method} {Path}.",
+            context.Request.Method,
+            context.Request.Path);
+
+        if (!context.Response.HasStarted)
+        {
+            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            context.Response.ContentType = "application/problem+json";
+            context.Response.Headers.RetryAfter = "10";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                type = "https://ffpja.org/problems/registration-authority-unavailable",
+                title = "Registration Authority Unavailable",
+                status = StatusCodes.Status503ServiceUnavailable,
+                detail = "The registration database is temporarily unavailable. No registration state change was accepted.",
+                traceId = context.TraceIdentifier
+            });
+        }
+    }
+});
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
     catch (Exception ex) when (
         context.Request.Path.StartsWithSegments("/api/registration") &&
         ex is NpgsqlException or TimeoutException)
