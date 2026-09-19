@@ -44,7 +44,8 @@ public sealed class LifecycleFlowSnapshotTests
             LifecycleRegistrationState.Registered,
             now.AddMinutes(-2),
             [
-                Audit(now.AddMinutes(-2), "Authenticated", LifecycleRegistrationState.Registered)
+                Audit(now.AddMinutes(-2), "Authenticated", LifecycleRegistrationState.Registered),
+                Audit(now.AddMinutes(-2), "ConfigurationContractPublished", LifecycleRegistrationState.Registered)
             ],
             lastAuthenticatedAtUtc: now.AddMinutes(-2));
 
