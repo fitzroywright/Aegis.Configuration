@@ -221,22 +221,6 @@ app.MapGet("/applications/{applicationId}/secrets/test", async (string applicati
     return Html(SecretManagerPresentation.Render(contract, status, message, healthy));
 });
 
-app.MapGet("/runbooks", async (IConfigurationContractStore store, CancellationToken ct) =>
-{
-    var contracts = await store.LoadAllAsync(ct);
-    string cards = contracts.Count == 0
-        ? "<div class='empty'>No runbooks available.</div>"
-        : string.Join("", contracts.OrderBy(x => x.DisplayName).Select(x => $"<a class='runbook-card' href='/runbooks/{Uri.EscapeDataString(x.ApplicationId)}'><span class='appicon'>▤</span><span><b>{E(x.DisplayName)}</b><small>Version {E(x.Version)}</small></span><span>›</span></a>"));
-    return Html(ConfigurationShell.Render("Runbooks", $"<section class='page-head'><div><h1>Runbooks</h1><p>Configuration commissioning and recovery instructions</p></div></section><section class='panel'><h2>Configuration Runbooks</h2>{cards}</section>", "runbooks"));
-});
-
-app.MapGet("/runbooks/{applicationId}", async (string applicationId, IConfigurationContractStore store, CancellationToken ct) =>
-{
-    var contract = (await store.LoadAllAsync(ct)).FirstOrDefault(x => string.Equals(x.ApplicationId, applicationId, StringComparison.OrdinalIgnoreCase));
-    if (contract is null) return Results.NotFound();
-    return Html(ConfigurationShell.Render("Runbook", $"<section class='page-head'><div><h1>{E(contract.DisplayName)} Runbook</h1><p>Commissioning guidance for {E(contract.ApplicationId)}</p></div></section><section class='panel'><h2>Configuration Contract</h2><p>Version {E(contract.Version)} · Site {E(contract.SiteId)} · Instance {E(contract.InstanceId)}</p><a class='primary' href='/applications/{Uri.EscapeDataString(contract.ApplicationId)}'>Back to application</a></section>", "runbooks"));
-});
-
 app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationConfigurationContract contract, IConfigurationContractRegistrationStore store, ContractValidator validator, OperationsRegistrationAuthority operationsAuthority, LifecycleRegistrationAuthority lifecycleAuthority, ConfigurationEvaluator evaluator, CommissioningReportRenderer renderer, RunbookArtifactStore runbooks, ILoggerFactory loggerFactory, CancellationToken ct) =>
 {
     ILogger registrationLogger = loggerFactory.CreateLogger("Aegis.Configuration.Registration");
