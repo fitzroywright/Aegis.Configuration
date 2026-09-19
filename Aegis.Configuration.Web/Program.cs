@@ -309,7 +309,7 @@ app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationCo
         {
             await lifecycleAuthority.RecordOperationalEventAsync(
                 contract.ApplicationId,
-                contract.InstanceId,
+                contract.InstanceId!,
                 installationId,
                 "ConfigurationContractRejected",
                 "Configuration contract validation failed.",
@@ -326,8 +326,8 @@ app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationCo
     {
         await lifecycleAuthority.RecordOperationalEventAsync(
             contract.ApplicationId,
-            contract.InstanceId,
-            installationId,
+            contract.InstanceId!,
+                installationId,
             "ConfigurationContractPublished",
             registration.Changed ? "Configuration contract accepted with changes." : "Configuration contract accepted with no material changes.",
             attemptId,
