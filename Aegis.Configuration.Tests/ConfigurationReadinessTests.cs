@@ -28,6 +28,17 @@ public sealed class ConfigurationReadinessTests
     }
 
     [Fact]
+    public void Disabled_required_setting_is_not_ready()
+    {
+        var evaluation = new ConfigurationEvaluation(
+            "Aegis.Example",
+            "1.0",
+            [new RequirementEvaluation("x","Required Feature",true,ConfigurationState.Disabled,"Disabled.")]);
+
+        Assert.False(evaluation.ToReadiness().IsReady);
+    }
+
+    [Fact]
     public void Unknown_required_setting_is_not_ready()
     {
         var evaluation = new ConfigurationEvaluation(
