@@ -135,14 +135,18 @@ public sealed class LifecycleFlowSnapshotTests
         LifecycleRegistrationRecord record = Record(
             "reg-rejected-contract",
             LifecycleRegistrationState.Registered,
-            now.AddSeconds(-15),
+            now.AddSeconds(-5),
             [
                 Audit(
-                    now.AddSeconds(-15),
+                    now.AddSeconds(-20),
                     "ConfigurationContractRejected",
+                    LifecycleRegistrationState.Registered),
+                Audit(
+                    now.AddSeconds(-5),
+                    "Authenticated",
                     LifecycleRegistrationState.Registered)
             ],
-            lastAuthenticatedAtUtc: now.AddSeconds(-20));
+            lastAuthenticatedAtUtc: now.AddSeconds(-5));
 
         LifecycleFlowSnapshot snapshot =
             LifecycleFlowSnapshotBuilder.Build([record], 50, now);
