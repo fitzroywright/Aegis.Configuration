@@ -1,11 +1,11 @@
 using System.Text;
 
-internal sealed record RunbookArtifact(
+public sealed record RunbookArtifact(
     string ApplicationId,
     string FileName,
     DateTimeOffset LastUpdatedUtc);
 
-internal sealed class RunbookArtifactStore
+public sealed class RunbookArtifactStore
 {
     private readonly string _directory;
 
