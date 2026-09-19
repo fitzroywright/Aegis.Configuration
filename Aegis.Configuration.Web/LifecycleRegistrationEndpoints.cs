@@ -30,7 +30,7 @@ internal static class LifecycleRegistrationEndpoints
     {
         app.MapPost("/api/registration/request", async (
             HttpContext context,
-            LifecycleIntroductionRequest request,
+            [Microsoft.AspNetCore.Mvc.FromBody] LifecycleIntroductionRequest request,
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
@@ -94,7 +94,7 @@ internal static class LifecycleRegistrationEndpoints
         app.MapPost("/api/registration/{registrationId}/claim", async (
             HttpContext context,
             string registrationId,
-            LifecycleClaimRequest request,
+            [Microsoft.AspNetCore.Mvc.FromBody] LifecycleClaimRequest request,
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
@@ -169,7 +169,7 @@ internal static class LifecycleRegistrationEndpoints
 
         app.MapPost("/api/registration/recovery", async (
             HttpContext context,
-            LifecycleRecoveryRequest request,
+            [Microsoft.AspNetCore.Mvc.FromBody] LifecycleRecoveryRequest request,
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
@@ -246,7 +246,7 @@ internal static class LifecycleRegistrationEndpoints
         app.MapPost("/api/registration/{registrationId}/approve", async (
             HttpContext context,
             string registrationId,
-            LifecycleDecisionRequest request,
+            [Microsoft.AspNetCore.Mvc.FromBody] LifecycleDecisionRequest request,
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
@@ -267,7 +267,7 @@ internal static class LifecycleRegistrationEndpoints
         app.MapPost("/api/registration/{registrationId}/reject", async (
             HttpContext context,
             string registrationId,
-            LifecycleDecisionRequest request,
+            [Microsoft.AspNetCore.Mvc.FromBody] LifecycleDecisionRequest request,
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
@@ -287,7 +287,7 @@ internal static class LifecycleRegistrationEndpoints
         app.MapPost("/api/registration/{registrationId}/revoke", async (
             HttpContext context,
             string registrationId,
-            LifecycleDecisionRequest request,
+            [Microsoft.AspNetCore.Mvc.FromBody] LifecycleDecisionRequest request,
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
@@ -308,7 +308,7 @@ internal static class LifecycleRegistrationEndpoints
         app.MapDelete("/api/registration/{registrationId}", async (
             HttpContext context,
             string registrationId,
-            LifecycleDecisionRequest request,
+            [Microsoft.AspNetCore.Mvc.FromBody] LifecycleDecisionRequest request,
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
@@ -335,7 +335,7 @@ internal static class LifecycleRegistrationEndpoints
         app.MapPost("/api/registration/{registrationId}/conflict/retain-existing", async (
             HttpContext context,
             string registrationId,
-            LifecycleDecisionRequest request,
+            [Microsoft.AspNetCore.Mvc.FromBody] LifecycleDecisionRequest request,
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
@@ -363,7 +363,7 @@ internal static class LifecycleRegistrationEndpoints
         app.MapPost("/api/registration/{registrationId}/conflict/replace-with-incoming", async (
             HttpContext context,
             string registrationId,
-            LifecycleDecisionRequest request,
+            [Microsoft.AspNetCore.Mvc.FromBody] LifecycleDecisionRequest request,
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
