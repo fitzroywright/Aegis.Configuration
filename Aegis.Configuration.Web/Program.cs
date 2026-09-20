@@ -91,6 +91,34 @@ app.Use(async (context, next) =>
             });
         }
     }
+    catch (Exception exception)
+        when (context.Request.Path.StartsWithSegments("/api/registration"))
+    {
+        ILogger logger = context.RequestServices
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("Aegis.Configuration.Registration");
+
+        logger.LogError(
+            exception,
+            "Unexpected registration lifecycle failure for {Method} {Path}. TraceId={TraceId}.",
+            context.Request.Method,
+            context.Request.Path,
+            context.TraceIdentifier);
+
+        if (!context.Response.HasStarted)
+        {
+            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            context.Response.ContentType = "application/problem+json";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                type = "https://ffpja.org/problems/registration-action-failed",
+                title = "Registration action failed",
+                status = StatusCodes.Status500InternalServerError,
+                detail = "An unexpected registration lifecycle error occurred. No success was reported. Check the Configuration service log using the trace ID.",
+                traceId = context.TraceIdentifier
+            });
+        }
+    }
 });
 app.Use(async (context, next) =>
 {
