@@ -196,8 +196,7 @@ internal sealed class ConfigurationRegistrationPublisher(
                 "Registration",
                 result.State.ToString(),
                 outcome,
-                Guid.NewGuid().ToString("N"),
-                relatedBusinessId: result.RegistrationId),
+                Guid.NewGuid().ToString("N")),
             ct);
     }
 
