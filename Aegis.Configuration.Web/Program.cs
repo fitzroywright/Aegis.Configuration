@@ -37,6 +37,8 @@ string instructionDirectory = builder.Configuration["AegisConfiguration:Instruct
 builder.Services.AddCommonSecrets(builder.Configuration);
 builder.Services.AddSuiteSecurity();
 builder.Services.AddHttpClient("operations-registration", client => client.Timeout = TimeSpan.FromSeconds(10));
+builder.Services.AddHttpClient("registration-lifecycle-telemetry", client => client.Timeout = TimeSpan.FromSeconds(5));
+builder.Services.AddSingleton<RegistrationLifecycleTelemetryPublisher>();
 builder.Services.AddSingleton<OperationsRegistrationAuthority>();
 builder.Services.AddSingleton<ILifecycleRegistrationStore, PostgresLifecycleRegistrationStore>();
 builder.Services.AddSingleton<LifecycleRegistrationAuthority>();
