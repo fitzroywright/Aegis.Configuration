@@ -16,13 +16,19 @@ public sealed record ApplicationConfigurationContract(
     DiagnosticsCapability? Diagnostics = null,
     SecretProviderDeclaration? Secrets = null,
     string? RunbookReference = null,
-    IReadOnlyList<ExternalDependencyDeclaration>? Dependencies = null);
+    IReadOnlyList<ExternalDependencyDeclaration>? Dependencies = null,
+    ApplicationPresentationMetadata? Presentation = null);
 
 /// <summary>
 /// Describes how an application says it obtains secrets. Aegis.Configuration may observe,
 /// diagnose and assist with this provider, but does not own the secret values or change the
 /// application's selected provider.
 /// </summary>
+
+public sealed record ApplicationPresentationMetadata(
+    string? IconUrl = null,
+    string? ShortName = null,
+    string? Accent = null);
 
 public sealed record ExternalDependencyDeclaration(
     string Name,
