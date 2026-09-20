@@ -519,6 +519,7 @@ app.MapGet("/orphaned", async (
 
     string content =
         "<section class='page-head'><div><p class='muted' style='font-size:12px;opacity:.72'>Contracts retired because no active registration exists for the application.</p></div></section>" +
+        "<section class='panel orphan-help'><b>What to do</b><span>If the application still exists, start it and restore its registration so it can publish a fresh contract. If the application was intentionally removed, leave the orphaned contract retired as historical evidence; no action is required. Investigate entries you do not recognize before deleting any registration data.</span><a href='/registration-lifecycle'>Open Registration Lifecycle</a></section>" +
         "<section class='panel table-panel'><table><thead><tr><th>Application</th><th>Version</th><th>Instance</th><th>Last Registered</th><th>Retired</th><th>Reason</th></tr></thead><tbody>" + rows + "</tbody></table></section>";
 
     return Html(ConfigurationShell.Render("Orphaned Contracts", content, "orphaned"));
@@ -535,7 +536,7 @@ app.MapGet("/runbooks", async (
     string rows = artifacts.Count == 0
         ? "<div class='empty'>No generated runbooks yet. A runbook is created automatically after a successful authenticated contract publication.</div>"
         : string.Join("", artifacts.Select(x =>
-            $"<div class='req'><span><b>{E(x.ApplicationId)}</b><small>Generated <time class='local-datetime' datetime='{E(x.LastUpdatedUtc.ToString("O"))}'>{E(x.LastUpdatedUtc.ToString("u"))}</time></small></span><a href='/runbooks/{Uri.EscapeDataString(x.ApplicationId)}'>Open Runbook</a><i class='ok'>✓</i></div>"));
+            $"<a class='req runbook-row' href='/runbooks/{Uri.EscapeDataString(x.ApplicationId)}'><span><b>{E(x.ApplicationId)}</b><small>Generated <time class='local-datetime' datetime='{E(x.LastUpdatedUtc.ToString("O"))}'>{E(x.LastUpdatedUtc.ToString("u"))}</time></small></span><span class='runbook-open'>Open Runbook</span><i class='ok'>✓</i></a>"));
 
     string content =
         "<section class='page-head'><div><p>Automatically generated operational artifacts from authenticated application contracts.</p></div></section>" +
