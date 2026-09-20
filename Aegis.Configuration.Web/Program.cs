@@ -474,11 +474,33 @@ app.MapGet("/contracts", async (
     string content =
         "<style>.contracts-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px;margin-top:14px}.contract-card{padding:16px;min-height:0}.contract-card-head{display:flex;align-items:center;gap:12px;border-bottom:1px solid #24516c;padding-bottom:12px}.contract-card-head h2{margin:0}.contract-card-head .status{margin-left:auto}.contract-facts{grid-template-columns:repeat(3,minmax(0,1fr))}.contract-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.contract-actions a{border:1px solid #22638d;padding:9px 12px;border-radius:5px}.contract-actions .primary{background:#087fff;font-weight:800}@media(max-width:700px){.contracts-grid{grid-template-columns:1fr}.contract-facts{grid-template-columns:1fr 1fr}}</style>" +
         "" +
-        "<section class='toolbar'><input id='contractSearch' placeholder='⌕  Search contracts...'><a href='/api/contracts' class='primary'>Raw Contract API</a></section>" +
+        "<section class='toolbar'><input id='contractSearch' placeholder='⌕  Search contracts...'><a href='/contracts/raw' class='primary'>Raw Contract API</a></section>" +
         "<section id='contractCards' class='contracts-grid'>" + cards + "</section>" +
         "<script>const cs=document.getElementById('contractSearch');if(cs)cs.addEventListener('input',()=>{const q=cs.value.toLowerCase();document.querySelectorAll('#contractCards .contract-card').forEach(x=>x.style.display=x.innerText.toLowerCase().includes(q)?'':'none');});</script>";
 
     return Html(ConfigurationShell.Render("Application Contracts", content, "contracts"));
+});
+
+app.MapGet("/contracts/raw", async (
+    HttpContext context,
+    IConfigurationContractStore store,
+    CancellationToken ct) =>
+{
+    if (!Has(context, "Configuration.View")) return Results.Forbid();
+
+    IReadOnlyList<ApplicationConfigurationContract> contracts = await store.LoadAllAsync(ct);
+    string json = JsonSerializer.Serialize(contracts, new JsonSerializerOptions
+    {
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() }
+    });
+    string encoded = HtmlEncoder.Default.Encode(json);
+    string content =
+        "<style>.raw-contract-toolbar{display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px}.raw-contract-toolbar a,.raw-contract-toolbar button{border:1px solid var(--line);border-radius:8px;padding:8px 11px;background:#071722;color:var(--starship-white);font-weight:800;cursor:pointer}.raw-contract{margin:0;border:1px solid var(--line-soft);border-top:2px solid var(--line);border-radius:10px;background:#02080d;color:var(--arctic-snow);padding:16px;white-space:pre;overflow:auto;max-height:calc(100vh - 330px);font:12px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace}</style>" +
+        "<section class='raw-contract-toolbar'><button type='button' onclick='navigator.clipboard.writeText(document.getElementById(\"rawContract\").textContent)'>Copy JSON</button><a href='/api/contracts' target='_blank' rel='noopener'>Open API JSON</a></section>" +
+        "<pre id='rawContract' class='raw-contract'>" + encoded + "</pre>";
+
+    return Html(ConfigurationShell.Render("Raw Contract API", content, "contracts"));
 });
 
 app.MapGet("/api/contracts", async (IConfigurationContractStore store, CancellationToken ct) => Results.Ok(await store.LoadAllAsync(ct)));
