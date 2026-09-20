@@ -72,12 +72,13 @@ document.addEventListener('click',async e=>{
  const action=b.dataset.registrationAction,id=b.dataset.registrationId;
  const destructive=['reject','revoke','purge','conflict/replace-with-incoming'].includes(action);
  let reason='';
- if(destructive){reason=prompt('Reason for this registration action:','')??'';if(reason===null)return;if(!confirm('Apply '+action.replaceAll('/',' ')+' to this registration?'))return;}
+ if(destructive){const entered=prompt('Reason for this registration action:','');if(entered===null)return;reason=entered;if(!confirm('Apply '+action.replaceAll('/',' ')+' to this registration?'))return;}
  else if(!confirm('Apply '+action.replaceAll('/',' ')+' to this registration?'))return;
  b.disabled=true;
  try{
    const method=action==='purge'?'DELETE':'POST';
-   const res=await fetch('/api/registration/'+encodeURIComponent(id)+'/'+(action==='purge'?'':action),{method,headers:{'Content-Type':'application/json'},body:JSON.stringify({reason})});
+   const url=action==='purge'?'/api/registration/'+encodeURIComponent(id):'/api/registration/'+encodeURIComponent(id)+'/'+action;
+   const res=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify({reason})});
    if(!res.ok){const t=await res.text();throw new Error(t||('HTTP '+res.status));}
    location.reload();
  }catch(err){alert('Registration action failed: '+err.message);b.disabled=false;}
