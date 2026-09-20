@@ -491,14 +491,36 @@ app.MapGet("/registration-lifecycle", async (
     int attention = records.Count(x => x.State is LifecycleRegistrationState.IdentityConflict or LifecycleRegistrationState.Revoked or LifecycleRegistrationState.Rejected);
 
     string rows = records.Count == 0
-        ? "<tr><td colspan='3' class='empty'>No registration lifecycle records are currently available.</td></tr>"
+        ? "<tr><td colspan='4' class='empty'>No registration lifecycle records are currently available.</td></tr>"
         : string.Join("", records.OrderBy(x => x.ApplicationId).Select(x =>
-            $"<tr><td><div style='display:flex;align-items:center;gap:9px'>{RegistrationIcon(x)}<b>{E(x.ApplicationId)}</b></div></td><td>{E(x.InstanceId)}</td><td><span class='status {(x.State == LifecycleRegistrationState.Registered ? "good" : "warn")}'>{E(x.State.ToString())}</span></td></tr>"));
+        {
+            string id = Uri.EscapeDataString(x.RegistrationId);
+            string actions = x.State switch
+            {
+                LifecycleRegistrationState.Pending or LifecycleRegistrationState.RecoveryPending =>
+                    $"<button class='row-action approve' data-registration-action='approve' data-registration-id='{id}'>Approve</button>" +
+                    $"<button class='row-action danger' data-registration-action='reject' data-registration-id='{id}'>Reject</button>",
+
+                LifecycleRegistrationState.Registered =>
+                    $"<button class='row-action danger' data-registration-action='revoke' data-registration-id='{id}'>Revoke</button>",
+
+                LifecycleRegistrationState.Rejected or LifecycleRegistrationState.Revoked =>
+                    $"<button class='row-action danger' data-registration-action='purge' data-registration-id='{id}'>Purge</button>",
+
+                LifecycleRegistrationState.IdentityConflict =>
+                    $"<button class='row-action approve' data-registration-action='conflict/retain-existing' data-registration-id='{id}'>Retain Existing</button>" +
+                    $"<button class='row-action danger' data-registration-action='conflict/replace-with-incoming' data-registration-id='{id}'>Use Incoming</button>",
+
+                _ => "<span class='muted'>No operator action</span>"
+            };
+
+            return $"<tr><td><div style='display:flex;align-items:center;gap:9px'>{RegistrationIcon(x)}<b>{E(x.ApplicationId)}</b></div></td><td>{E(x.InstanceId)}</td><td><span class='status {(x.State == LifecycleRegistrationState.Registered ? "good" : "warn")}'>{E(x.State.ToString())}</span></td><td><div class='row-actions'>{actions}</div></td></tr>";
+        }));
 
     string content =
         "<section class='page-head'><div><p>Authoritative durable registration state for the control plane.</p></div></section>" +
         $"<section class='metrics'><a class='metric' href='/registration-lifecycle?state=Registered'><span>R</span><b>{registered}</b><small>Registered</small></a><a class='metric' href='/registration-lifecycle?state=Pending'><span>P</span><b>{pending}</b><small>Pending</small></a><a class='metric' href='/registration-lifecycle?state=Recovery'><span>C</span><b>{recovery}</b><small>Recovery</small></a><a class='metric' href='/registration-lifecycle?state=Attention'><span>!</span><b>{attention}</b><small>Attention</small></a><a class='metric' href='/registration-lifecycle'><span>Σ</span><b>{records.Count}</b><small>Total</small></a></section>" +
-        "<section class='panel table-panel'><table><thead><tr><th>Application</th><th>Instance</th><th>State</th></tr></thead><tbody>" + rows + "</tbody></table></section>";
+        "<section class='panel table-panel'><table><thead><tr><th>Application</th><th>Instance</th><th>State</th><th>Actions</th></tr></thead><tbody>" + rows + "</tbody></table></section>";
 
     return Html(ConfigurationShell.Render("Registration Lifecycle", content, "registration"));
 });
