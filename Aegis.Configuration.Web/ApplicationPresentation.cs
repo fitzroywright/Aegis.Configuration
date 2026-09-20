@@ -20,7 +20,7 @@ internal static class ApplicationPresentation
 <style>{PageCss}</style>
 <section class='page-head'><div><h1>{E(contract.DisplayName)}</h1><p>Application configuration details · {E(contract.ApplicationId)}</p></div></section>
 <section class='presentation-head panel'>
-  <div class='detail-head'><span class='bigicon'>▣</span><div><h2>{E(contract.DisplayName)}</h2><small>{E(contract.Description)}</small></div><span class='status {statusClass}'>{statusText}</span></div>
+  <div class='detail-head'>{RenderIcon(contract)}<div><h2>{E(contract.DisplayName)}</h2><small>{E(contract.Description)}</small></div><span class='status {statusClass}'>{statusText}</span></div>
   <div class='facts presentation-facts'>
     <div><small>VERSION</small><b>{E(contract.Version)}</b></div>
     <div><small>SITE / INSTANCE</small><b>{E(contract.SiteId)} / {E(contract.InstanceId)}</b></div>
@@ -55,7 +55,7 @@ internal static class ApplicationPresentation
 <style>{PageCss}</style>
 <section class='page-head'><div><h1>{E(contract.DisplayName)} Contract</h1><p>Human-readable contract presentation · raw JSON available below for troubleshooting</p></div></section>
 <section class='presentation-head panel'>
-  <div class='detail-head'><span class='bigicon'>◇</span><div><h2>{E(contract.DisplayName)}</h2><small>{E(contract.ApplicationId)}</small></div><span class='status {statusClass}'>{statusText}</span></div>
+  <div class='detail-head'>{RenderIcon(contract)}<div><h2>{E(contract.DisplayName)}</h2><small>{E(contract.ApplicationId)}</small></div><span class='status {statusClass}'>{statusText}</span></div>
   <div class='facts presentation-facts'>
     <div><small>VERSION</small><b>{E(contract.Version)}</b></div>
     <div><small>SITE</small><b>{E(contract.SiteId)}</b></div>
@@ -148,11 +148,40 @@ internal static class ApplicationPresentation
         return JsonSerializer.Serialize(contract, options);
     }
 
+    private static string RenderIcon(ApplicationConfigurationContract contract)
+    {
+        string source = string.IsNullOrWhiteSpace(contract.Presentation?.ShortName)
+            ? contract.DisplayName
+            : contract.Presentation!.ShortName!;
+        string[] words = source.Replace("Aegis.", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("Aegis ", "", StringComparison.OrdinalIgnoreCase)
+            .Split([' ', '.', '-', '_'], StringSplitOptions.RemoveEmptyEntries);
+        string initials = words.Length switch
+        {
+            0 => "AE",
+            1 => words[0][..Math.Min(2, words[0].Length)].ToUpperInvariant(),
+            _ => string.Concat(words.Take(2).Select(x => char.ToUpperInvariant(x[0])))
+        };
+
+        string? icon = contract.Presentation?.IconUrl?.Trim();
+        if (string.IsNullOrWhiteSpace(icon))
+            return $"<span class='bigicon'>{E(initials)}</span>";
+
+        bool safe = (icon.StartsWith("/", StringComparison.Ordinal) &&
+                     !icon.StartsWith("//", StringComparison.Ordinal) &&
+                     !icon.Contains("..", StringComparison.Ordinal)) ||
+                    (Uri.TryCreate(icon, UriKind.Absolute, out Uri? uri) &&
+                     uri.Scheme == Uri.UriSchemeHttps);
+        if (!safe) return $"<span class='bigicon'>{E(initials)}</span>";
+
+        return $"<span class='bigicon appicon-image'><img src='{E(icon)}' alt='' loading='lazy' onerror=\"this.style.display='none';this.nextElementSibling.style.display='grid'\"><span class='appicon-fallback' style='display:none'>{E(initials)}</span></span>";
+    }
+
     private static string Registered(DateTimeOffset? value) => value.HasValue ? value.Value.ToString("MMM d, yyyy HH:mm") + " UTC" : "Never";
     private static string YesNo(bool value) => value ? "Yes" : "No";
     private static string E(string? value) => HtmlEncoder.Default.Encode(value ?? "—");
 
     private const string PageCss = """
-.presentation-head{padding:16px;margin:14px 0}.presentation-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}.presentation-panel{padding:16px;margin:14px 0;min-width:0}.presentation-grid .presentation-panel{margin:0}.presentation-panel h2{margin-top:0}.presentation-facts{grid-template-columns:repeat(4,minmax(0,1fr));gap:0}.presentation-facts b{overflow-wrap:anywhere}.presentation-tabs{margin-top:12px}.presentation-table{overflow:auto;border:1px solid #153f5c;border-radius:6px}.presentation-table table{min-width:920px}.presentation-table td{white-space:normal;vertical-align:top}.presentation-table code{color:#80d5ff;overflow-wrap:anywhere}.commissioning-summary{border-width:1px}.commissioning-heading{display:flex;gap:12px;align-items:flex-start}.commissioning-heading>span{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;font-weight:900;font-size:20px;flex:none}.commissioning-heading h2{margin:0}.commissioning-heading p{margin:4px 0 0}.commissioning-failed{border-color:#8a6120;background:rgba(138,97,32,.12)}.commissioning-failed .commissioning-heading>span{background:#8a6120;color:#fff}.commissioning-complete{border-color:#236b47;background:rgba(35,107,71,.12)}.commissioning-complete .commissioning-heading>span{background:#236b47;color:#fff}.commissioning-list{list-style:none;padding:0;margin:14px 0 0;display:grid;gap:8px}.commissioning-list li{display:grid;grid-template-columns:minmax(220px,.8fr) minmax(0,1.2fr);gap:14px;padding:10px 12px;border:1px solid #6b4c1d;border-radius:6px;background:rgba(0,0,0,.12)}.commissioning-list li small{display:block;margin-top:3px}.commissioning-list code{white-space:normal;overflow-wrap:anywhere;color:#ffd18a}.raw-section{padding:16px;margin:14px 0}.raw-section summary{cursor:pointer;color:#7dcaff;font-weight:800;font-size:15px}.raw-box{display:block;width:100%;max-width:100%;max-height:520px;overflow:auto;white-space:pre;font:12px/1.5 Consolas,'Courier New',monospace;background:#000b13;border:1px solid #275b7c;border-radius:6px;padding:16px;color:#cfe8fa;margin-top:12px}@media(max-width:1000px){.presentation-grid{grid-template-columns:1fr}.presentation-facts{grid-template-columns:1fr 1fr}.commissioning-list li{grid-template-columns:1fr}}@media(max-width:650px){.presentation-facts{grid-template-columns:1fr}}
+.presentation-head{padding:16px;margin:14px 0}.appicon-image{overflow:hidden;align-items:center;justify-content:center}.appicon-image img{width:100%;height:100%;object-fit:contain}.appicon-fallback{width:100%;height:100%;place-items:center}.presentation-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}.presentation-panel{padding:16px;margin:14px 0;min-width:0}.presentation-grid .presentation-panel{margin:0}.presentation-panel h2{margin-top:0}.presentation-facts{grid-template-columns:repeat(4,minmax(0,1fr));gap:0}.presentation-facts b{overflow-wrap:anywhere}.presentation-tabs{margin-top:12px}.presentation-table{overflow:auto;border:1px solid #153f5c;border-radius:6px}.presentation-table table{min-width:920px}.presentation-table td{white-space:normal;vertical-align:top}.presentation-table code{color:#80d5ff;overflow-wrap:anywhere}.commissioning-summary{border-width:1px}.commissioning-heading{display:flex;gap:12px;align-items:flex-start}.commissioning-heading>span{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;font-weight:900;font-size:20px;flex:none}.commissioning-heading h2{margin:0}.commissioning-heading p{margin:4px 0 0}.commissioning-failed{border-color:#8a6120;background:rgba(138,97,32,.12)}.commissioning-failed .commissioning-heading>span{background:#8a6120;color:#fff}.commissioning-complete{border-color:#236b47;background:rgba(35,107,71,.12)}.commissioning-complete .commissioning-heading>span{background:#236b47;color:#fff}.commissioning-list{list-style:none;padding:0;margin:14px 0 0;display:grid;gap:8px}.commissioning-list li{display:grid;grid-template-columns:minmax(220px,.8fr) minmax(0,1.2fr);gap:14px;padding:10px 12px;border:1px solid #6b4c1d;border-radius:6px;background:rgba(0,0,0,.12)}.commissioning-list li small{display:block;margin-top:3px}.commissioning-list code{white-space:normal;overflow-wrap:anywhere;color:#ffd18a}.raw-section{padding:16px;margin:14px 0}.raw-section summary{cursor:pointer;color:#7dcaff;font-weight:800;font-size:15px}.raw-box{display:block;width:100%;max-width:100%;max-height:520px;overflow:auto;white-space:pre;font:12px/1.5 Consolas,'Courier New',monospace;background:#000b13;border:1px solid #275b7c;border-radius:6px;padding:16px;color:#cfe8fa;margin-top:12px}@media(max-width:1000px){.presentation-grid{grid-template-columns:1fr}.presentation-facts{grid-template-columns:1fr 1fr}.commissioning-list li{grid-template-columns:1fr}}@media(max-width:650px){.presentation-facts{grid-template-columns:1fr}}
 """;
 }
