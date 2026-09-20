@@ -227,7 +227,7 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
         await transaction.CommitAsync(ct);
 
         if (latestAuditInserted && record.Audit.Count > 0)
-            await _telemetry.PublishAsync(record, record.Audit[^1], ct);
+            await _telemetry.PublishAsync(record, record.Audit[^1], CancellationToken.None);
     }
 
     private async Task EnsureInitializedAsync(CancellationToken ct)
