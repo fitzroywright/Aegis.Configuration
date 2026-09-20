@@ -1,3 +1,4 @@
+using Npgsql;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Net;
 using System.Net.Http.Headers;
@@ -292,17 +293,31 @@ internal static class LifecycleRegistrationEndpoints
             CancellationToken ct) =>
         {
             if (!Has(context, "Configuration.Manage")) return Results.Forbid();
-            LifecycleRegistrationRecord? record = await authority.RevokeAsync(
-                registrationId, Actor(context),
-                context.Connection.RemoteIpAddress?.ToString(),
-                context.Request.Headers.UserAgent.ToString(),
-                request.Reason, Correlation(context), ct);
-            return record is null ? Results.NotFound() : Results.Ok(new
+            try
             {
-                record.RegistrationId,
-                state = record.State.ToString(),
-                record.RevokedAtUtc
-            });
+                LifecycleRegistrationRecord? record = await authority.RevokeAsync(
+                    registrationId, Actor(context),
+                    context.Connection.RemoteIpAddress?.ToString(),
+                    context.Request.Headers.UserAgent.ToString(),
+                    request.Reason, Correlation(context), ct);
+                return record is null ? Results.NotFound() : Results.Ok(new
+                {
+                    record.RegistrationId,
+                    state = record.State.ToString(),
+                    record.RevokedAtUtc
+                });
+            }
+            catch (PostgresException ex)
+            {
+                return Results.Problem(
+                    title: "Registration persistence failed",
+                    detail: $"Database rejected revoke: {ex.SqlState} {ex.MessageText}",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
         });
 
         app.MapDelete("/api/registration/{registrationId}", async (
