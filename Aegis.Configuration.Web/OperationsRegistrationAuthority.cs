@@ -12,12 +12,17 @@ internal sealed class OperationsRegistrationAuthority(
         string instanceId = request.Headers["X-Aegis-Instance-Id"].ToString().Trim();
         string credential = request.Headers["X-Aegis-Registration-Key"].ToString().Trim();
 
-        if (!string.Equals(applicationId, "Aegis.Operations", StringComparison.OrdinalIgnoreCase) ||
+        bool supportedControlPlaneCaller =
+            string.Equals(applicationId, "Aegis.Operations", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(applicationId, "Aegis.Diagnostics", StringComparison.OrdinalIgnoreCase);
+
+        if (!supportedControlPlaneCaller ||
             string.IsNullOrWhiteSpace(instanceId) ||
             string.IsNullOrWhiteSpace(credential))
         {
             logger.LogWarning(
-                "Configuration machine API rejected a request because the Operations registration identity was incomplete.");
+                "Configuration machine API rejected a request because the control-plane registration identity was incomplete or unsupported. ApplicationId={ApplicationId}.",
+                applicationId);
             return false;
         }
 
@@ -40,7 +45,8 @@ internal sealed class OperationsRegistrationAuthority(
                 return true;
 
             logger.LogWarning(
-                "Operations rejected Configuration machine API authentication for instance {InstanceId} with HTTP {StatusCode}.",
+                "Operations rejected Configuration machine API authentication for {ApplicationId}/{InstanceId} with HTTP {StatusCode}.",
+                applicationId,
                 instanceId,
                 (int)response.StatusCode);
             return false;
