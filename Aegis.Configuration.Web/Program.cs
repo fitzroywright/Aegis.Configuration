@@ -468,12 +468,12 @@ app.MapGet("/contracts", async (
 
     string content =
         "<style>.contracts-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px;margin-top:14px}.contract-card{padding:16px;min-height:0}.contract-card-head{display:flex;align-items:center;gap:12px;border-bottom:1px solid #24516c;padding-bottom:12px}.contract-card-head h2{margin:0}.contract-card-head .status{margin-left:auto}.contract-facts{grid-template-columns:repeat(3,minmax(0,1fr))}.contract-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.contract-actions a{border:1px solid #22638d;padding:9px 12px;border-radius:5px}.contract-actions .primary{background:#087fff;font-weight:800}@media(max-width:700px){.contracts-grid{grid-template-columns:1fr}.contract-facts{grid-template-columns:1fr 1fr}}</style>" +
-        "<section class='page-head'><div><h1>Application Contracts</h1><p>Human-readable contracts published by registered applications</p></div></section>" +
+        "<section class='page-head'><div><p>Human-readable contracts published by registered applications</p></div></section>" +
         "<section class='toolbar'><input id='contractSearch' placeholder='⌕  Search contracts...'><a href='/api/contracts' class='primary'>Raw Contract API</a></section>" +
         "<section id='contractCards' class='contracts-grid'>" + cards + "</section>" +
         "<script>const cs=document.getElementById('contractSearch');if(cs)cs.addEventListener('input',()=>{const q=cs.value.toLowerCase();document.querySelectorAll('#contractCards .contract-card').forEach(x=>x.style.display=x.innerText.toLowerCase().includes(q)?'':'none');});</script>";
 
-    return Html(ConfigurationShell.Render("Contracts", content, "contracts"));
+    return Html(ConfigurationShell.Render("Application Contracts", content, "contracts"));
 });
 
 app.MapGet("/api/contracts", async (IConfigurationContractStore store, CancellationToken ct) => Results.Ok(await store.LoadAllAsync(ct)));
@@ -496,11 +496,11 @@ app.MapGet("/registration-lifecycle", async (
             $"<tr><td><div style='display:flex;align-items:center;gap:9px'>{RegistrationIcon(x)}<b>{E(x.ApplicationId)}</b></div></td><td>{E(x.InstanceId)}</td><td><span class='status {(x.State == LifecycleRegistrationState.Registered ? "good" : "warn")}'>{E(x.State.ToString())}</span></td></tr>"));
 
     string content =
-        "<section class='page-head'><div><h1>Registration Lifecycle</h1><p>Authoritative durable registration state for the control plane.</p></div></section>" +
+        "<section class='page-head'><div><p>Authoritative durable registration state for the control plane.</p></div></section>" +
         $"<section class='metrics'><div class='metric'><span>R</span><b>{registered}</b><small>Registered</small></div><div class='metric'><span>P</span><b>{pending}</b><small>Pending</small></div><div class='metric'><span>C</span><b>{recovery}</b><small>Recovery</small></div><div class='metric'><span>!</span><b>{attention}</b><small>Attention</small></div><div class='metric'><span>Σ</span><b>{records.Count}</b><small>Total</small></div></section>" +
         "<section class='panel table-panel'><table><thead><tr><th>Application</th><th>Instance</th><th>State</th></tr></thead><tbody>" + rows + "</tbody></table></section>";
 
-    return Html(ConfigurationShell.Render("Registration", content, "registration"));
+    return Html(ConfigurationShell.Render("Registration Lifecycle", content, "registration"));
 });
 
 app.MapGet("/runbooks", async (
@@ -517,10 +517,10 @@ app.MapGet("/runbooks", async (
             $"<div class='req'><span><b>{E(x.ApplicationId)}</b><small>Generated <time class='local-datetime' datetime='{E(x.LastUpdatedUtc.ToString("O"))}'>{E(x.LastUpdatedUtc.ToString("u"))}</time></small></span><a href='/runbooks/{Uri.EscapeDataString(x.ApplicationId)}'>Open Runbook</a><i class='ok'>✓</i></div>"));
 
     string content =
-        "<section class='page-head'><div><h1>Configuration Runbooks</h1><p>Automatically generated operational artifacts from authenticated application contracts.</p></div></section>" +
+        "<section class='page-head'><div><p>Automatically generated operational artifacts from authenticated application contracts.</p></div></section>" +
         "<section class='panel'><div class='reqs'>" + rows + "</div></section>";
 
-    return Html(ConfigurationShell.Render("Runbooks", content, "runbooks"));
+    return Html(ConfigurationShell.Render("Configuration Runbooks", content, "runbooks"));
 });
 
 app.MapGet("/runbooks/{applicationId}", async (
@@ -534,7 +534,7 @@ app.MapGet("/runbooks/{applicationId}", async (
     string? markdown = await runbooks.ReadAsync(applicationId, ct);
     if (markdown is null) return Results.NotFound();
     string content =
-        "<section class='page-head'><div><h1>" + E(applicationId) + " Runbook</h1><p>Generated operational recovery and commissioning guidance.</p></div></section>" +
+        "<section class='page-head'><div><p>Generated operational recovery and commissioning guidance.</p></div></section>" +
         "<section class='panel' style='padding:16px'><pre style='white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--starship-white)'>" + E(markdown) + "</pre></section>";
     return Html(ConfigurationShell.Render(applicationId + " Runbook", content, "runbooks"));
 });
@@ -566,7 +566,7 @@ static string RenderDashboard(List<(ApplicationConfigurationContract Contract, C
     int selected = selectedIndex ?? (rows.Count > 0 ? 0 : -1);
     string detail = selected < 0 ? "<section class='detail'><div class='empty'>Applications appear here automatically after they register with System Configuration.</div></section>" : RenderDetails(rows[selected]);
     string activity = rows.Count == 0 ? "<div class='empty'>No registration activity.</div>" : string.Join("", rows.OrderByDescending(x => x.Contract.LastRegisteredAtUtc).Take(4).Select(x => $"<div class='activity-row'><i></i><span><b>{E(x.Contract.DisplayName)}</b><small>Configuration contract registered</small></span><time>{Registered(x.Contract.LastRegisteredAtUtc, "MMM d, HH:mm")}</time></div>"));
-    string content = $"<style>{SecretManagerStyles()}</style><section class='page-head'><div><h1>Applications</h1><p>All registered applications and their configuration status</p></div></section><section class='toolbar'><input id='search' placeholder='⌕  Search applications...'><select id='statusFilter'><option value=''>All Status</option><option>Configured</option><option>Not Configured</option></select><button onclick='location.reload()'>↻</button><button class='primary' onclick='document.getElementById(\"registrationInfoDialog\").showModal()'>ⓘ Application Registration</button></section><section class='metrics'><div class='metric'><span>▦</span><b>{rows.Count}</b><small>Total Applications</small></div><div class='metric green'><span>✓</span><b>{configured}</b><small>Configured</small></div><div class='metric amber'><span>!</span><b>{rows.Count - configured}</b><small>Not Configured</small></div><div class='metric amber'><span>⚠</span><b>{orphanedContracts}</b><small>Orphaned Contracts</small></div><div class='metric'><span>≡</span><b>{requirements}</b><small>Total Requirements</small></div></section><section class='workspace'><div><section class='panel table-panel'><table id='apps'><thead><tr><th>Application</th><th>Version</th><th>Site / Instance</th><th>Configuration</th><th>Secrets</th><th>Required</th><th>Optional</th><th>Last Updated</th><th></th></tr></thead><tbody>{tableRows}</tbody></table></section><section class='lower'><div class='panel'><h3>◴ Recent Activity</h3>{activity}</div><div class='panel'><h3>⌘ Quick Links</h3><div class='quick'><a href='/runbooks'>▤ <span><b>Configuration Runbooks</b><small>Commissioning and recovery guidance</small></span></a><a href='/contracts'>◇ <span><b>Application Contracts</b><small>Human-readable contract views</small></span></a></div></div></section></div>{detail}</section><dialog id='registrationInfoDialog'><h2>Applications Register Automatically</h2><p>Applications publish their configuration requirements to System Configuration when they start. You do not manually add applications here.</p><p><b>Configuration Server</b><br><code id='configurationServerUrl'></code></p><p><b>Registration Endpoint</b><br><code id='registrationEndpointUrl'></code></p><p>Applications should normally configure <code>Aegis:Configuration:Url</code> with the Configuration Server address above.</p><p class='muted'>Normal applications authenticate directly with Configuration using their durable Common.Registration identity. Control-plane services use their restricted bootstrap identity. Secret values are never displayed here.</p><button onclick='this.closest(\"dialog\").close()'>Close</button></dialog>";
+    string content = $"<style>{SecretManagerStyles()}</style><section class='page-head'><div><p>All registered applications and their configuration status</p></div></section><section class='toolbar'><input id='search' placeholder='⌕  Search applications...'><select id='statusFilter'><option value=''>All Status</option><option>Configured</option><option>Not Configured</option></select><button onclick='location.reload()'>↻</button><button class='primary' onclick='document.getElementById(\"registrationInfoDialog\").showModal()'>ⓘ Application Registration</button></section><section class='metrics'><div class='metric'><span>▦</span><b>{rows.Count}</b><small>Total Applications</small></div><div class='metric green'><span>✓</span><b>{configured}</b><small>Configured</small></div><div class='metric amber'><span>!</span><b>{rows.Count - configured}</b><small>Not Configured</small></div><div class='metric amber'><span>⚠</span><b>{orphanedContracts}</b><small>Orphaned Contracts</small></div><div class='metric'><span>≡</span><b>{requirements}</b><small>Total Requirements</small></div></section><section class='workspace'><div><section class='panel table-panel'><table id='apps'><thead><tr><th>Application</th><th>Version</th><th>Site / Instance</th><th>Configuration</th><th>Secrets</th><th>Required</th><th>Optional</th><th>Last Updated</th><th></th></tr></thead><tbody>{tableRows}</tbody></table></section><section class='lower'><div class='panel'><h3>◴ Recent Activity</h3>{activity}</div><div class='panel'><h3>⌘ Quick Links</h3><div class='quick'><a href='/runbooks'>▤ <span><b>Configuration Runbooks</b><small>Commissioning and recovery guidance</small></span></a><a href='/contracts'>◇ <span><b>Application Contracts</b><small>Human-readable contract views</small></span></a></div></div></section></div>{detail}</section><dialog id='registrationInfoDialog'><h2>Applications Register Automatically</h2><p>Applications publish their configuration requirements to System Configuration when they start. You do not manually add applications here.</p><p><b>Configuration Server</b><br><code id='configurationServerUrl'></code></p><p><b>Registration Endpoint</b><br><code id='registrationEndpointUrl'></code></p><p>Applications should normally configure <code>Aegis:Configuration:Url</code> with the Configuration Server address above.</p><p class='muted'>Normal applications authenticate directly with Configuration using their durable Common.Registration identity. Control-plane services use their restricted bootstrap identity. Secret values are never displayed here.</p><button onclick='this.closest(\"dialog\").close()'>Close</button></dialog>";
     return ConfigurationShell.Render("Applications", content, "applications");
 }
 
