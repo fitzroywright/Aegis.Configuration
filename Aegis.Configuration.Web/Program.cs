@@ -449,7 +449,7 @@ app.MapGet("/contracts", async (
             string statusText = x.Evaluation.IsComplete ? "Configured" : "Needs Attention";
             string registered = Registered(x.Contract.LastRegisteredAtUtc, "MMM d, yyyy HH:mm");
             return $"<article class='contract-card panel'>" +
-                   $"<div class='contract-card-head'><span class='bigicon'>◇</span><div><h2>{E(x.Contract.DisplayName)}</h2><small>{E(x.Contract.ApplicationId)}</small></div><span class='status {statusClass}'>{statusText}</span></div>" +
+                   $"<div class='contract-card-head'>{AppIcon(x.Contract, 1, "bigicon")}<div><h2>{E(x.Contract.DisplayName)}</h2><small>{E(x.Contract.ApplicationId)}</small></div><span class='status {statusClass}'>{statusText}</span></div>" +
                    $"<p class='muted'>{E(x.Contract.Description)}</p>" +
                    $"<div class='facts contract-facts'>" +
                    $"<div><small>VERSION</small><b>{E(x.Contract.Version)}</b></div>" +
@@ -575,7 +575,7 @@ static string RenderApplicationRow((ApplicationConfigurationContract Contract, C
     SecretManagerStatus secrets = SecretManagerEvaluator.Evaluate(x.Contract, x.Evaluation);
     string appId = Uri.EscapeDataString(x.Contract.ApplicationId);
     string secretSummary = secrets.HasSecrets ? $"<details class='secret-menu' onclick='event.stopPropagation()'><summary class='secret-pill {E(secrets.CssClass)}'><span>{E(secrets.Glyph)}</span>{E(secrets.ProviderName)} · {E(secrets.IssueLabel)}</summary><div class='secret-menu-items'><a href='/applications/{appId}/secrets'>Configure</a><a href='/applications/{appId}/secrets#issues'>View Issues</a>{(secrets.CanOpenProviderConsole ? $"<a href='{E(secrets.ManagementUrl)}' target='_blank' rel='noopener'>Open Provider Console</a>" : string.Empty)}</div></details>" : "<span class='secret-pill neutral'>— No secrets</span>";
-    return $"<tr class='{(selected ? "selected" : "")}'><td><a href='/applications/{appId}'><span class='appicon'>{AppGlyph(index)}</span><b>{E(x.Contract.DisplayName)}</b><small>{E(x.Contract.ApplicationId)}</small></a></td><td>{E(x.Contract.Version)}</td><td>{E(x.Contract.SiteId)}<small>{E(x.Contract.InstanceId)}</small></td><td><span class='status {(x.Evaluation.IsComplete ? "good" : "warn")}'>{(x.Evaluation.IsComplete ? "Configured" : "Not Configured")}</span></td><td>{secretSummary}</td><td>{x.Evaluation.Requirements.Count(r => r.Required)}</td><td>{x.Evaluation.Requirements.Count(r => !r.Required)}</td><td>{Registered(x.Contract.LastRegisteredAtUtc, "MMM d, HH:mm")}</td><td>›</td></tr>";
+    return $"<tr class='{(selected ? "selected" : "")}'><td><a href='/applications/{appId}'>{AppIcon(x.Contract, index)}<b>{E(x.Contract.DisplayName)}</b><small>{E(x.Contract.ApplicationId)}</small></a></td><td>{E(x.Contract.Version)}</td><td>{E(x.Contract.SiteId)}<small>{E(x.Contract.InstanceId)}</small></td><td><span class='status {(x.Evaluation.IsComplete ? "good" : "warn")}'>{(x.Evaluation.IsComplete ? "Configured" : "Not Configured")}</span></td><td>{secretSummary}</td><td>{x.Evaluation.Requirements.Count(r => r.Required)}</td><td>{x.Evaluation.Requirements.Count(r => !r.Required)}</td><td>{Registered(x.Contract.LastRegisteredAtUtc, "MMM d, HH:mm")}</td><td>›</td></tr>";
 }
 
 static string RenderDetails((ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation) x)
@@ -586,7 +586,7 @@ static string RenderDetails((ApplicationConfigurationContract Contract, Configur
     string appId = Uri.EscapeDataString(x.Contract.ApplicationId);
     SecretManagerStatus secrets = SecretManagerEvaluator.Evaluate(x.Contract, x.Evaluation);
     string secretsSummary = secrets.HasSecrets ? $"<a class='secret-detail-link' href='/applications/{appId}/secrets'><span>{E(secrets.Glyph)}</span><span><b>Secrets: {E(secrets.ProviderName)}</b><small>{E(secrets.IssueLabel)}</small></span></a>" : "<div class='secret-detail-link disabled'><span>—</span><span><b>Secrets</b><small>No secret requirements declared</small></span></div>";
-    return $"<aside class='detail'><div class='detail-head'><span class='bigicon'>▣</span><div><h2>{E(x.Contract.DisplayName)}</h2><small>{E(x.Contract.ApplicationId)}</small></div><span class='status {(x.Evaluation.IsComplete ? "good" : "warn")}'>{(x.Evaluation.IsComplete ? "Configured" : "Not Configured")}</span></div><div class='facts'><div><small>VERSION</small><b>{E(x.Contract.Version)}</b></div><div><small>SITE / INSTANCE</small><b>{E(x.Contract.SiteId)} / {E(x.Contract.InstanceId)}</b></div><div><small>REGISTERED</small><b>{Registered(x.Contract.LastRegisteredAtUtc, "MMM d, yyyy")}</b></div><div><small>APPLICATION ID</small><b>{E(x.Contract.ApplicationId)}</b></div></div>{secretsSummary}<nav class='tabs'><b>Requirements</b><a href='/applications/{appId}/details'>Details</a><a href='/applications/{appId}/details#diagnostics'>Diagnostics</a><a href='/runbooks/{appId}'>Runbooks</a><a href='/applications/{appId}/contract'>Contract</a></nav><h3>Required Requirements</h3><div class='reqs'>{(string.IsNullOrEmpty(req) ? "<div class='empty'>None</div>" : req)}</div><h3>Optional Requirements</h3><div class='reqs'>{(string.IsNullOrEmpty(opt) ? "<div class='empty'>None</div>" : opt)}</div>{environment}</aside>";
+    return $"<aside class='detail'><div class='detail-head'>{AppIcon(x.Contract, 0, "bigicon")}<div><h2>{E(x.Contract.DisplayName)}</h2><small>{E(x.Contract.ApplicationId)}</small></div><span class='status {(x.Evaluation.IsComplete ? "good" : "warn")}'>{(x.Evaluation.IsComplete ? "Configured" : "Not Configured")}</span></div><div class='facts'><div><small>VERSION</small><b>{E(x.Contract.Version)}</b></div><div><small>SITE / INSTANCE</small><b>{E(x.Contract.SiteId)} / {E(x.Contract.InstanceId)}</b></div><div><small>REGISTERED</small><b>{Registered(x.Contract.LastRegisteredAtUtc, "MMM d, yyyy")}</b></div><div><small>APPLICATION ID</small><b>{E(x.Contract.ApplicationId)}</b></div></div>{secretsSummary}<nav class='tabs'><b>Requirements</b><a href='/applications/{appId}/details'>Details</a><a href='/applications/{appId}/details#diagnostics'>Diagnostics</a><a href='/runbooks/{appId}'>Runbooks</a><a href='/applications/{appId}/contract'>Contract</a></nav><h3>Required Requirements</h3><div class='reqs'>{(string.IsNullOrEmpty(req) ? "<div class='empty'>None</div>" : req)}</div><h3>Optional Requirements</h3><div class='reqs'>{(string.IsNullOrEmpty(opt) ? "<div class='empty'>None</div>" : opt)}</div>{environment}</aside>";
 }
 
 static string RenderRuntimeEnvironment(RuntimeEnvironmentSnapshot? environment)
@@ -609,4 +609,29 @@ static string RenderRequirement(RequirementEvaluation r)
     return $"<div class='req'><span><b>{E(r.DisplayName)}</b><small>{E(r.Purpose ?? r.Message)}</small><small>{stateLabel} · {source}{defaultText}{condition}</small></span><code>{value}</code><i class='{iconClass}'>{icon}</i></div>";
 }
 static string AppGlyph(int i) => new[] { "▣", "◇", "▦", "⌁", "◈", "▤" }[i % 6];
+static string AppInitials(ApplicationConfigurationContract contract)
+{
+    string source = string.IsNullOrWhiteSpace(contract.Presentation?.ShortName)
+        ? contract.DisplayName
+        : contract.Presentation!.ShortName!;
+    string[] words = source.Replace("Aegis.", "", StringComparison.OrdinalIgnoreCase)
+        .Replace("Aegis ", "", StringComparison.OrdinalIgnoreCase)
+        .Split([' ', '.', '-', '_'], StringSplitOptions.RemoveEmptyEntries);
+    if (words.Length == 0) return "AE";
+    if (words.Length == 1) return words[0][..Math.Min(2, words[0].Length)].ToUpperInvariant();
+    return string.Concat(words.Take(2).Select(x => char.ToUpperInvariant(x[0])));
+}
+static string AppIcon(ApplicationConfigurationContract contract, int index, string cssClass = "appicon")
+{
+    string initials = E(AppInitials(contract));
+    string? icon = contract.Presentation?.IconUrl?.Trim();
+    if (string.IsNullOrWhiteSpace(icon))
+        return $"<span class='{cssClass}'>{initials}</span>";
+
+    bool safe = (icon.StartsWith("/", StringComparison.Ordinal) && !icon.StartsWith("//", StringComparison.Ordinal) && !icon.Contains("..", StringComparison.Ordinal)) ||
+        (Uri.TryCreate(icon, UriKind.Absolute, out Uri? uri) && uri.Scheme == Uri.UriSchemeHttps);
+    if (!safe) return $"<span class='{cssClass}'>{initials}</span>";
+
+    return $"<span class='{cssClass} appicon-image'><img src='{E(icon)}' alt='' loading='lazy' onerror=\"this.style.display='none';this.nextElementSibling.style.display='grid'\"><span class='appicon-fallback' style='display:none'>{initials}</span></span>";
+}
 static string SecretManagerStyles() => ".secret-pill{display:inline-flex;align-items:center;gap:5px;border:1px solid;border-radius:5px;padding:5px 8px;font-weight:700;white-space:nowrap}.secret-pill.good{background:#00663f;border-color:#0c9e67}.secret-pill.warn{background:#6d4911;border-color:#c88a27}.secret-pill.neutral{background:#24394a;border-color:#5c7283}.secret-menu{position:relative}.secret-menu summary{cursor:pointer;list-style:none}.secret-menu summary::-webkit-details-marker{display:none}.secret-menu-items{position:absolute;z-index:20;right:0;min-width:190px;background:#001827;border:1px solid #2c7bab;border-radius:6px;padding:6px;box-shadow:0 8px 22px #0008}.secret-menu-items a{display:block;padding:8px;border-radius:4px;color:#ddecf7}.secret-menu-items a:hover{background:#07314a}.secret-detail-link{display:flex;align-items:center;gap:10px;margin:12px 0;padding:10px;border:1px solid #2c7bab;border-radius:6px;background:#062238;color:#e8f5ff}.secret-detail-link>span:first-child{font-size:20px}.secret-detail-link small{display:block;color:#9fb7c8}.secret-detail-link.disabled{opacity:.75}";
