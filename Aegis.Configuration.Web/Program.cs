@@ -156,7 +156,7 @@ app.MapSuiteSecurity();
 app.MapLifecycleRegistration();
 app.MapGet("/api/registration/summary", async (HttpContext context, LifecycleRegistrationAuthority authority, CancellationToken ct) =>
 {
-    if (!Has(context, "Configuration.View")) return Results.Forbid();
+    if (!Has(context, "Configuration.View")) return Forbidden();
 
     IReadOnlyList<LifecycleRegistrationRecord> records = await authority.ListAsync(ct);
     return Results.Ok(new
@@ -184,7 +184,7 @@ app.MapGet("/api/registration/flow", async (
     LifecycleRegistrationAuthority authority,
     CancellationToken ct) =>
 {
-    if (!Has(context, "Configuration.View")) return Results.Forbid();
+    if (!Has(context, "Configuration.View")) return Forbidden();
 
     IReadOnlyList<LifecycleRegistrationRecord> records =
         await authority.ListAllAsync(ct);
@@ -197,7 +197,7 @@ app.MapGet("/api/registration/flow", async (
 
 app.MapGet("/api/registration/reconciliation", (HttpContext context, RegistrationReconciliationState state) =>
 {
-    if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+    if (!Has(context, "Configuration.Manage")) return Forbidden();
     return Results.Ok(state.Get());
 });
 
@@ -464,7 +464,7 @@ app.MapGet("/contracts", async (
     ConfigurationEvaluator evaluator,
     CancellationToken ct) =>
 {
-    if (!Has(context, "Configuration.View")) return Results.Forbid();
+    if (!Has(context, "Configuration.View")) return Forbidden();
 
     IReadOnlyList<ApplicationConfigurationContract> contracts = await store.LoadAllAsync(ct);
     var rows = new List<(ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation)>();
@@ -515,7 +515,7 @@ app.MapGet("/contracts/raw", async (
     IConfigurationContractStore store,
     CancellationToken ct) =>
 {
-    if (!Has(context, "Configuration.View")) return Results.Forbid();
+    if (!Has(context, "Configuration.View")) return Forbidden();
 
     IReadOnlyList<ApplicationConfigurationContract> contracts = await store.LoadAllAsync(ct);
     string json = JsonSerializer.Serialize(contracts, new JsonSerializerOptions
@@ -538,7 +538,7 @@ app.MapGet("/registration-lifecycle", async (
     LifecycleRegistrationAuthority authority,
     CancellationToken ct) =>
 {
-    if (!Has(context, "Configuration.View")) return Results.Forbid();
+    if (!Has(context, "Configuration.View")) return Forbidden();
 
     IReadOnlyList<LifecycleRegistrationRecord> records = await authority.ListAllAsync(ct);
     int registered = records.Count(x => x.State == LifecycleRegistrationState.Registered);
@@ -585,7 +585,7 @@ app.MapGet("/orphaned", async (
     HttpContext context,
     CancellationToken ct) =>
 {
-    if (!Has(context, "Configuration.View")) return Results.Forbid();
+    if (!Has(context, "Configuration.View")) return Forbidden();
 
     IReadOnlyList<RetiredConfigurationContractInfo> orphaned =
         await contractStore.ListRetiredAsync("orphaned", ct);
@@ -608,7 +608,7 @@ app.MapGet("/runbooks", async (
     RunbookArtifactStore runbooks,
     CancellationToken ct) =>
 {
-    if (!Has(context, "Configuration.View")) return Results.Forbid();
+    if (!Has(context, "Configuration.View")) return Forbidden();
 
     IReadOnlyList<RunbookArtifact> artifacts = await runbooks.ListAsync(ct);
     string rows = artifacts.Count == 0
@@ -629,7 +629,7 @@ app.MapGet("/runbooks/{applicationId}", async (
     RunbookArtifactStore runbooks,
     CancellationToken ct) =>
 {
-    if (!Has(context, "Configuration.View")) return Results.Forbid();
+    if (!Has(context, "Configuration.View")) return Forbidden();
 
     string? markdown = await runbooks.ReadAsync(applicationId, ct);
     if (markdown is null) return Results.NotFound();
@@ -647,11 +647,12 @@ app.MapGet("/api/report/{applicationId}", async (string applicationId, IConfigur
     CommissioningSnapshot snapshot = new(contract.ApplicationId, contract.Version, DateTimeOffset.UtcNow, evaluation);
     return Results.Text(renderer.RenderMarkdown(snapshot), "text/markdown; charset=utf-8");
 });
-app.MapPost("/api/contracts/validate", (HttpContext context, ApplicationConfigurationContract contract, ContractValidator validator) => Has(context, "Configuration.Manage") ? Results.Ok(validator.Validate(contract)) : Results.Forbid());
+app.MapPost("/api/contracts/validate", (HttpContext context, ApplicationConfigurationContract contract, ContractValidator validator) => Has(context, "Configuration.Manage") ? Results.Ok(validator.Validate(contract)) : Forbidden());
 app.MapAegisHealth("Aegis.Configuration");
 app.Run();
 
 static bool Has(HttpContext c, string permission) => c.Items.TryGetValue("SuiteIdentity", out object? value) && value is SuiteIdentity i && i.Permissions.Contains(permission, StringComparer.OrdinalIgnoreCase);
+static IResult Forbidden() => Results.Json(new { error = "Forbidden", detail = "The authenticated SuiteSecurity session does not have the required permission." }, statusCode: StatusCodes.Status403Forbidden);
 static IResult Html(string html) => Results.Content(html, "text/html; charset=utf-8");
 static string E(string? value) => HtmlEncoder.Default.Encode(value ?? "—");
 static string Registered(DateTimeOffset? value, string format) => value.HasValue
