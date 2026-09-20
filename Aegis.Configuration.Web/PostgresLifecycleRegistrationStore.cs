@@ -255,6 +255,12 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                     conflict_installation_id text NULL
                 );
 
+                ALTER TABLE aegis_registration
+                    ADD COLUMN IF NOT EXISTS audit_json jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+                ALTER TABLE aegis_registration
+                    ADD COLUMN IF NOT EXISTS conflict_installation_id text NULL;
+
                 CREATE UNIQUE INDEX IF NOT EXISTS ux_aegis_registration_active_instance
                     ON aegis_registration (lower(application_id), lower(instance_id))
                     WHERE state <> 'Purged';
