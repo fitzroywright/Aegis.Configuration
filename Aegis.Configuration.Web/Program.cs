@@ -3,6 +3,7 @@ using Npgsql;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Text.Encodings.Web;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Aegis.Configuration.Application;
 using Aegis.Configuration.Domain;
