@@ -468,6 +468,14 @@ internal sealed class LifecycleRegistrationAuthority
             if (record is null)
                 return null;
 
+            bool validDecisionState = record.State is
+                LifecycleRegistrationState.Pending or
+                LifecycleRegistrationState.RecoveryPending;
+
+            if (!validDecisionState)
+                throw new InvalidOperationException(
+                    $"Registration in state '{record.State}' cannot be {(approve ? "approved" : "rejected")}.");
+
             LifecycleRegistrationState next = record.State switch
             {
                 LifecycleRegistrationState.Pending when approve
@@ -480,11 +488,8 @@ internal sealed class LifecycleRegistrationAuthority
                 LifecycleRegistrationState.RecoveryPending
                     => LifecycleRegistrationState.Rejected,
 
-                _ => record.State
+                _ => throw new InvalidOperationException("Unsupported registration decision state.")
             };
-
-            if (next == record.State)
-                return record;
 
             DateTimeOffset now = DateTimeOffset.UtcNow;
 
@@ -539,8 +544,9 @@ internal sealed class LifecycleRegistrationAuthority
             if (record is null)
                 return null;
 
-            if (record.State == LifecycleRegistrationState.Purged)
-                return record;
+            if (record.State != LifecycleRegistrationState.Registered)
+                throw new InvalidOperationException(
+                    $"Only a Registered lifecycle registration can be revoked. Current state is '{record.State}'.");
 
             DateTimeOffset now = DateTimeOffset.UtcNow;
 
