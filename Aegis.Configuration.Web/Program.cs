@@ -472,6 +472,32 @@ app.MapGet("/contracts", async (
 });
 
 app.MapGet("/api/contracts", async (IConfigurationContractStore store, CancellationToken ct) => Results.Ok(await store.LoadAllAsync(ct)));
+app.MapGet("/registration-lifecycle", async (
+    HttpContext context,
+    LifecycleRegistrationAuthority authority,
+    CancellationToken ct) =>
+{
+    if (!Has(context, "Configuration.View")) return Results.Forbid();
+
+    IReadOnlyList<LifecycleRegistrationRecord> records = await authority.ListAllAsync(ct);
+    int registered = records.Count(x => x.State == LifecycleRegistrationState.Registered);
+    int pending = records.Count(x => x.State is LifecycleRegistrationState.Pending or LifecycleRegistrationState.Approved);
+    int recovery = records.Count(x => x.State is LifecycleRegistrationState.RecoveryPending or LifecycleRegistrationState.RecoveryApproved);
+    int attention = records.Count(x => x.State is LifecycleRegistrationState.IdentityConflict or LifecycleRegistrationState.Revoked or LifecycleRegistrationState.Rejected);
+
+    string rows = records.Count == 0
+        ? "<tr><td colspan='3' class='empty'>No registration lifecycle records are currently available.</td></tr>"
+        : string.Join("", records.OrderBy(x => x.ApplicationId).Select(x =>
+            $"<tr><td><b>{E(x.ApplicationId)}</b></td><td>{E(x.InstanceId)}</td><td><span class='status {(x.State == LifecycleRegistrationState.Registered ? "good" : "warn")}'>{E(x.State.ToString())}</span></td></tr>"));
+
+    string content =
+        "<section class='page-head'><div><h1>Registration Lifecycle</h1><p>Authoritative durable registration state for the control plane.</p></div></section>" +
+        $"<section class='metrics'><div class='metric'><span>R</span><b>{registered}</b><small>Registered</small></div><div class='metric'><span>P</span><b>{pending}</b><small>Pending</small></div><div class='metric'><span>C</span><b>{recovery}</b><small>Recovery</small></div><div class='metric'><span>!</span><b>{attention}</b><small>Attention</small></div><div class='metric'><span>Σ</span><b>{records.Count}</b><small>Total</small></div></section>" +
+        "<section class='panel table-panel'><table><thead><tr><th>Application</th><th>Instance</th><th>State</th></tr></thead><tbody>" + rows + "</tbody></table></section>";
+
+    return Html(ConfigurationShell.Render("Registration", content, "registration"));
+});
+
 app.MapGet("/runbooks", async (
     HttpContext context,
     RunbookArtifactStore runbooks,
@@ -489,7 +515,7 @@ app.MapGet("/runbooks", async (
         "<section class='page-head'><div><h1>Configuration Runbooks</h1><p>Automatically generated operational artifacts from authenticated application contracts.</p></div></section>" +
         "<section class='panel'><div class='reqs'>" + rows + "</div></section>";
 
-    return Html(ConfigurationShell.Render("Runbooks", content, "applications"));
+    return Html(ConfigurationShell.Render("Runbooks", content, "runbooks"));
 });
 
 app.MapGet("/runbooks/{applicationId}", async (
@@ -501,9 +527,11 @@ app.MapGet("/runbooks/{applicationId}", async (
     if (!Has(context, "Configuration.View")) return Results.Forbid();
 
     string? markdown = await runbooks.ReadAsync(applicationId, ct);
-    return markdown is null
-        ? Results.NotFound()
-        : Results.Text(markdown, "text/markdown; charset=utf-8");
+    if (markdown is null) return Results.NotFound();
+    string content =
+        "<section class='page-head'><div><h1>" + E(applicationId) + " Runbook</h1><p>Generated operational recovery and commissioning guidance.</p></div></section>" +
+        "<section class='panel' style='padding:16px'><pre style='white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--starship-white)'>" + E(markdown) + "</pre></section>";
+    return Html(ConfigurationShell.Render(applicationId + " Runbook", content, "runbooks"));
 });
 
 app.MapGet("/api/report/{applicationId}", async (string applicationId, IConfigurationContractStore store, ConfigurationEvaluator evaluator, CommissioningReportRenderer renderer, CancellationToken ct) =>
