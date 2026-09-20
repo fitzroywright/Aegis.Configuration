@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.HttpOverrides;
 using Npgsql;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
@@ -52,6 +53,10 @@ builder.Services.AddSingleton<CommissioningReportRenderer>();
 builder.Services.AddSingleton(new RunbookArtifactStore(runbookDirectory));
 builder.Services.AddSingleton<ContractValidator>();
 WebApplication app = builder.Build();
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+});
 app.Use(async (context, next) =>
 {
     try
