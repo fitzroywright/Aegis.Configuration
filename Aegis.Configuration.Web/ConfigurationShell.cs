@@ -83,7 +83,7 @@ document.addEventListener('click',async e=>{
    const method=action==='purge'?'DELETE':'POST';
    const url=action==='purge'?'/api/registration/'+encodeURIComponent(id):'/api/registration/'+encodeURIComponent(id)+'/'+action;
    const res=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify({reason})});
-   if(!res.ok){const t=await res.text();throw new Error(t||('HTTP '+res.status));}
+   if(!res.ok){let detail='HTTP '+res.status;const t=await res.text();if(t){try{const p=JSON.parse(t);detail=p.detail||p.error||p.title||t;}catch{detail=t;}}throw new Error(detail);}
    location.reload();
  }catch(err){alert('Registration action failed: '+err.message);b.disabled=false;}
 });
