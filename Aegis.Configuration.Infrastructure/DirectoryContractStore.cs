@@ -6,6 +6,15 @@ using Aegis.Configuration.Domain;
 
 namespace Aegis.Configuration.Infrastructure;
 
+public sealed record RetiredConfigurationContractInfo(
+    string ApplicationId,
+    string DisplayName,
+    string Version,
+    string? InstanceId,
+    DateTimeOffset? LastRegisteredAtUtc,
+    DateTimeOffset RetiredAtUtc,
+    string Reason);
+
 public sealed class DirectoryContractStore(string directoryPath) : IConfigurationContractStore, IConfigurationContractRegistrationStore
 {
     private const string RetiredCafeteriaApplicationId = "Cafeteria.Services";
@@ -137,6 +146,65 @@ public sealed class DirectoryContractStore(string directoryPath) : IConfiguratio
             : $"*.{SanitizeReason(reason)}.configuration-contract.json";
         int count = Directory.EnumerateFiles(retiredDirectory, pattern, SearchOption.TopDirectoryOnly).Count();
         return ValueTask.FromResult(count);
+    }
+
+    public async ValueTask<IReadOnlyList<RetiredConfigurationContractInfo>> ListRetiredAsync(
+        string? reason = null,
+        CancellationToken cancellationToken = default)
+    {
+        string retiredDirectory = Path.Combine(directoryPath, "retired");
+        if (!Directory.Exists(retiredDirectory)) return [];
+
+        string pattern = string.IsNullOrWhiteSpace(reason)
+            ? "*.configuration-contract.json"
+            : $"*.{SanitizeReason(reason)}.configuration-contract.json";
+
+        List<RetiredConfigurationContractInfo> items = [];
+        foreach (string path in Directory.EnumerateFiles(retiredDirectory, pattern, SearchOption.TopDirectoryOnly))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            await using FileStream stream = File.OpenRead(path);
+            ApplicationConfigurationContract? contract;
+            try
+            {
+                contract = await JsonSerializer.DeserializeAsync<ApplicationConfigurationContract>(
+                    stream,
+                    jsonOptions,
+                    cancellationToken);
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+
+            if (contract is null) continue;
+
+            string fileName = Path.GetFileName(path);
+            string retiredReason = string.IsNullOrWhiteSpace(reason)
+                ? InferRetirementReason(fileName)
+                : SanitizeReason(reason);
+
+            items.Add(new RetiredConfigurationContractInfo(
+                contract.ApplicationId,
+                contract.DisplayName,
+                contract.Version,
+                contract.InstanceId,
+                contract.LastRegisteredAtUtc,
+                File.GetLastWriteTimeUtc(path),
+                retiredReason));
+        }
+
+        return items
+            .OrderByDescending(x => x.RetiredAtUtc)
+            .ToArray();
+    }
+
+    private static string InferRetirementReason(string fileName)
+    {
+        string stem = fileName.Replace(".configuration-contract.json", string.Empty, StringComparison.OrdinalIgnoreCase);
+        string[] parts = stem.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 3 ? parts[^1] : "retired";
     }
 
     public async ValueTask<IReadOnlyList<string>> ReconcileAsync(
