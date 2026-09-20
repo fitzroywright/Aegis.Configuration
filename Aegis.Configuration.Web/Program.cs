@@ -7,9 +7,14 @@ using Aegis.Configuration.Application;
 using Aegis.Configuration.Domain;
 using Aegis.Configuration.Infrastructure;
 using Common.Diagnostics;
+using Common.Registration;
 using Common.Secrets;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+string operationsLogInstanceId = builder.Configuration["Aegis:Registration:InstanceId"]?.Trim() ?? Environment.MachineName;
+string operationsLogCredentialFile = builder.Configuration["Aegis:Registration:CredentialFile"]?.Trim()
+    ?? "/var/lib/aegis/configuration/registration.key";
+builder.Services.AddAegisControlPlaneOperationsLogging(builder.Configuration, "Aegis.Configuration", operationsLogInstanceId, operationsLogCredentialFile, builder.Environment.EnvironmentName);
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddRateLimiter(options =>
 {
