@@ -518,8 +518,7 @@ app.MapGet("/orphaned", async (
             $"<tr><td><b>{E(x.DisplayName)}</b><small>{E(x.ApplicationId)}</small></td><td>{E(x.Version)}</td><td>{E(x.InstanceId)}</td><td>{Registered(x.LastRegisteredAtUtc, "MMM d, yyyy HH:mm")}</td><td><time class='local-datetime' datetime='{E(x.RetiredAtUtc.ToString("O"))}'>{E(x.RetiredAtUtc.ToString("u"))}</time></td><td>{E(x.Reason)}</td></tr>"));
 
     string content =
-        "<section class='page-head'><div><p>Contracts retired because no active registration exists for the application.</p></div></section>" +
-        $"<section class='metrics'><div class='metric amber'><span>⚠</span><b>{orphaned.Count}</b><small>Orphaned Contracts</small></div></section>" +
+        "<section class='page-head'><div><p class='muted' style='font-size:12px;opacity:.72'>Contracts retired because no active registration exists for the application.</p></div></section>" +
         "<section class='panel table-panel'><table><thead><tr><th>Application</th><th>Version</th><th>Instance</th><th>Last Registered</th><th>Retired</th><th>Reason</th></tr></thead><tbody>" + rows + "</tbody></table></section>";
 
     return Html(ConfigurationShell.Render("Orphaned Contracts", content, "orphaned"));
