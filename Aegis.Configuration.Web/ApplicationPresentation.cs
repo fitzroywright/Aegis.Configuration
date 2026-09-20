@@ -18,7 +18,7 @@ internal static class ApplicationPresentation
 
         string content = $"""
 <style>{PageCss}</style>
-<section class='page-head'><div><h1>{E(contract.DisplayName)}</h1><p>Application configuration details · {E(contract.ApplicationId)}</p></div></section>
+<section class='page-head'><div><p>Application configuration details · {E(contract.ApplicationId)}</p></div></section>
 <section class='presentation-head panel'>
   <div class='detail-head'>{RenderIcon(contract)}<div><h2>{E(contract.DisplayName)}</h2><small>{E(contract.Description)}</small></div><span class='status {statusClass}'>{statusText}</span></div>
   <div class='facts presentation-facts'>
@@ -53,7 +53,7 @@ internal static class ApplicationPresentation
 
         string content = $"""
 <style>{PageCss}</style>
-<section class='page-head'><div><h1>{E(contract.DisplayName)} Contract</h1><p>Human-readable contract presentation · raw JSON available below for troubleshooting</p></div></section>
+<section class='page-head'><div><p>Human-readable contract presentation · raw JSON available below for troubleshooting</p></div></section>
 <section class='presentation-head panel'>
   <div class='detail-head'>{RenderIcon(contract)}<div><h2>{E(contract.DisplayName)}</h2><small>{E(contract.ApplicationId)}</small></div><span class='status {statusClass}'>{statusText}</span></div>
   <div class='facts presentation-facts'>
