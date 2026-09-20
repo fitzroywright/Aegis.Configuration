@@ -13,6 +13,25 @@ public sealed class ContractValidator
         if (string.IsNullOrWhiteSpace(contract.DisplayName)) errors.Add("DisplayName is required.");
         if (string.IsNullOrWhiteSpace(contract.Version)) errors.Add("Version is required.");
         if (contract.Requirements.Count == 0) errors.Add("At least one configuration requirement is required.");
+        if (contract.Presentation is not null)
+        {
+            string? icon = contract.Presentation.IconUrl?.Trim();
+            if (!string.IsNullOrWhiteSpace(icon))
+            {
+                bool safeRelative = icon.StartsWith("/", StringComparison.Ordinal) &&
+                    !icon.StartsWith("//", StringComparison.Ordinal) &&
+                    !icon.Contains("..", StringComparison.Ordinal);
+                bool safeHttps = Uri.TryCreate(icon, UriKind.Absolute, out Uri? uri) &&
+                    uri.Scheme == Uri.UriSchemeHttps;
+                if (!safeRelative && !safeHttps)
+                    errors.Add("Presentation.IconUrl must be an HTTPS URL or a safe root-relative path.");
+            }
+
+            if (contract.Presentation.ShortName?.Length > 32)
+                errors.Add("Presentation.ShortName cannot exceed 32 characters.");
+            if (contract.Presentation.Accent?.Length > 32)
+                errors.Add("Presentation.Accent cannot exceed 32 characters.");
+        }
 
         HashSet<string> ids = new(StringComparer.OrdinalIgnoreCase);
         foreach (ConfigurationRequirement requirement in contract.Requirements)
