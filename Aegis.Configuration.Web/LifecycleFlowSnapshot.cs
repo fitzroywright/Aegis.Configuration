@@ -26,7 +26,10 @@ internal sealed record LifecycleFlowJourneyView(
     DateTimeOffset? LastEventAtUtc,
     string? CorrelationId,
     string? LastAction,
-    string? LastReason);
+    string? LastReason,
+    string? IconUrl = null,
+    string? ShortName = null,
+    string? Accent = null);
 
 internal sealed record LifecycleFlowSnapshot(
     DateTimeOffset GeneratedAtUtc,
@@ -103,6 +106,10 @@ internal static class LifecycleFlowSnapshotBuilder
 
         string health = DetermineHealth(record, stage, ageSeconds, latest, now);
 
+        string? iconUrl = record.Metadata?["presentation"]?["iconUrl"]?.GetValue<string>();
+        string? shortName = record.Metadata?["presentation"]?["shortName"]?.GetValue<string>();
+        string? accent = record.Metadata?["presentation"]?["accent"]?.GetValue<string>();
+
         return new LifecycleFlowJourneyView(
             record.RegistrationId,
             record.ApplicationId,
@@ -116,7 +123,10 @@ internal static class LifecycleFlowSnapshotBuilder
             latest?.AtUtc,
             latest?.CorrelationId,
             latest?.Action,
-            latest?.Reason);
+            latest?.Reason,
+            iconUrl,
+            shortName,
+            accent);
     }
 
     private static LifecycleAuditEvent? FindStageEvent(
