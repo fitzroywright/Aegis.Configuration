@@ -468,7 +468,7 @@ app.MapGet("/contracts", async (
 
     string content =
         "<style>.contracts-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px;margin-top:14px}.contract-card{padding:16px;min-height:0}.contract-card-head{display:flex;align-items:center;gap:12px;border-bottom:1px solid #24516c;padding-bottom:12px}.contract-card-head h2{margin:0}.contract-card-head .status{margin-left:auto}.contract-facts{grid-template-columns:repeat(3,minmax(0,1fr))}.contract-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.contract-actions a{border:1px solid #22638d;padding:9px 12px;border-radius:5px}.contract-actions .primary{background:#087fff;font-weight:800}@media(max-width:700px){.contracts-grid{grid-template-columns:1fr}.contract-facts{grid-template-columns:1fr 1fr}}</style>" +
-        "<section class='page-head'><div><p>Human-readable contracts published by registered applications</p></div></section>" +
+        "" +
         "<section class='toolbar'><input id='contractSearch' placeholder='⌕  Search contracts...'><a href='/api/contracts' class='primary'>Raw Contract API</a></section>" +
         "<section id='contractCards' class='contracts-grid'>" + cards + "</section>" +
         "<script>const cs=document.getElementById('contractSearch');if(cs)cs.addEventListener('input',()=>{const q=cs.value.toLowerCase();document.querySelectorAll('#contractCards .contract-card').forEach(x=>x.style.display=x.innerText.toLowerCase().includes(q)?'':'none');});</script>";
