@@ -12,7 +12,10 @@ internal sealed class ConfigurationRegistrationPublisher(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        string operationsUrl = (configuration["Aegis:Operations:Url"] ?? "http://127.0.0.1:5100").TrimEnd('/') + "/";
+        string operationsUrl = AegisControlPlaneEndpoints.ResolveInternal(
+            configuration,
+            AegisControlPlaneService.Operations,
+            logger) + "/";
         string instanceId = configuration["Aegis:Registration:InstanceId"]?.Trim() ?? Environment.MachineName;
         string credentialFile = configuration["Aegis:Registration:CredentialFile"]?.Trim()
             ?? "/var/lib/aegis/configuration/registration.key";
