@@ -12,6 +12,7 @@ internal interface ILifecycleRegistrationStore
 internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistrationStore
 {
     private readonly string _connectionString;
+    private readonly RegistrationLifecycleTelemetryPublisher _telemetry;
     private readonly SemaphoreSlim _initializeGate = new(1, 1);
     private bool _initialized;
 
@@ -21,8 +22,11 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
     };
 
-    public PostgresLifecycleRegistrationStore(IConfiguration configuration)
+    public PostgresLifecycleRegistrationStore(
+        IConfiguration configuration,
+        RegistrationLifecycleTelemetryPublisher telemetry)
     {
+        _telemetry = telemetry ?? throw new ArgumentNullException(nameof(telemetry));
         _connectionString =
             configuration["AegisConfiguration:RegistrationConnectionString"]?.Trim()
             ?? configuration.GetConnectionString("AegisConfiguration")?.Trim()
@@ -181,6 +185,7 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
 
         await command.ExecuteNonQueryAsync(ct);
 
+        bool latestAuditInserted = false;
         for (int eventIndex = 0; eventIndex < record.Audit.Count; eventIndex++)
         {
             LifecycleAuditEvent audit = record.Audit[eventIndex];
@@ -214,10 +219,15 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
             auditCommand.Parameters.AddWithValue("correlation_id", (object?)audit.CorrelationId ?? DBNull.Value);
             auditCommand.Parameters.AddWithValue("previous_state", (object?)audit.PreviousState?.ToString() ?? DBNull.Value);
             auditCommand.Parameters.AddWithValue("resulting_state", audit.ResultingState.ToString());
-            await auditCommand.ExecuteNonQueryAsync(ct);
+            int inserted = await auditCommand.ExecuteNonQueryAsync(ct);
+            if (eventIndex == record.Audit.Count - 1 && inserted > 0)
+                latestAuditInserted = true;
         }
 
         await transaction.CommitAsync(ct);
+
+        if (latestAuditInserted && record.Audit.Count > 0)
+            await _telemetry.PublishAsync(record, record.Audit[^1], ct);
     }
 
     private async Task EnsureInitializedAsync(CancellationToken ct)
