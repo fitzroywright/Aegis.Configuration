@@ -493,7 +493,7 @@ app.MapGet("/registration-lifecycle", async (
     string rows = records.Count == 0
         ? "<tr><td colspan='3' class='empty'>No registration lifecycle records are currently available.</td></tr>"
         : string.Join("", records.OrderBy(x => x.ApplicationId).Select(x =>
-            $"<tr><td><b>{E(x.ApplicationId)}</b></td><td>{E(x.InstanceId)}</td><td><span class='status {(x.State == LifecycleRegistrationState.Registered ? "good" : "warn")}'>{E(x.State.ToString())}</span></td></tr>"));
+            $"<tr><td><div style='display:flex;align-items:center;gap:9px'>{RegistrationIcon(x)}<b>{E(x.ApplicationId)}</b></div></td><td>{E(x.InstanceId)}</td><td><span class='status {(x.State == LifecycleRegistrationState.Registered ? "good" : "warn")}'>{E(x.State.ToString())}</span></td></tr>"));
 
     string content =
         "<section class='page-head'><div><h1>Registration Lifecycle</h1><p>Authoritative durable registration state for the control plane.</p></div></section>" +
@@ -608,6 +608,33 @@ static string RenderRequirement(RequirementEvaluation r)
     string icon = r.State switch { ConfigurationState.Configured => "✓", ConfigurationState.Default => "D", ConfigurationState.Unknown => "?", _ => "!" };
     return $"<div class='req'><span><b>{E(r.DisplayName)}</b><small>{E(r.Purpose ?? r.Message)}</small><small>{stateLabel} · {source}{defaultText}{condition}</small></span><code>{value}</code><i class='{iconClass}'>{icon}</i></div>";
 }
+static string RegistrationIcon(LifecycleRegistrationRecord record)
+{
+    string? shortName = record.Metadata?["presentation"]?["shortName"]?.GetValue<string>();
+    string? displayName = record.Metadata?["displayName"]?.GetValue<string>();
+    string source = string.IsNullOrWhiteSpace(shortName)
+        ? (string.IsNullOrWhiteSpace(displayName) ? record.ApplicationId : displayName!)
+        : shortName!;
+    string[] words = source.Replace("Aegis.", "", StringComparison.OrdinalIgnoreCase)
+        .Replace("Aegis ", "", StringComparison.OrdinalIgnoreCase)
+        .Split([' ', '.', '-', '_'], StringSplitOptions.RemoveEmptyEntries);
+    string initials = words.Length switch
+    {
+        0 => "AE",
+        1 => words[0][..Math.Min(2, words[0].Length)].ToUpperInvariant(),
+        _ => string.Concat(words.Take(2).Select(x => char.ToUpperInvariant(x[0])))
+    };
+
+    string? icon = record.Metadata?["presentation"]?["iconUrl"]?.GetValue<string>()?.Trim();
+    bool safe = !string.IsNullOrWhiteSpace(icon) &&
+        ((icon.StartsWith("/", StringComparison.Ordinal) && !icon.StartsWith("//", StringComparison.Ordinal) && !icon.Contains("..", StringComparison.Ordinal)) ||
+         (Uri.TryCreate(icon, UriKind.Absolute, out Uri? uri) && uri.Scheme == Uri.UriSchemeHttps));
+    if (!safe)
+        return $"<span class='appicon'>{E(initials)}</span>";
+
+    return $"<span class='appicon appicon-image'><img src='{E(icon)}' alt='' loading='lazy' onerror=\"this.style.display='none';this.nextElementSibling.style.display='grid'\"><span class='appicon-fallback' style='display:none'>{E(initials)}</span></span>";
+}
+
 static string AppGlyph(int i) => new[] { "▣", "◇", "▦", "⌁", "◈", "▤" }[i % 6];
 static string AppInitials(ApplicationConfigurationContract contract)
 {
