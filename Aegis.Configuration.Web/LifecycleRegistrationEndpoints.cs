@@ -222,7 +222,7 @@ internal static class LifecycleRegistrationEndpoints
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
-            if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+            if (!Has(context, "Configuration.Manage")) return Forbidden();
             IReadOnlyList<LifecycleRegistrationRecord> records = includePurged == true
                 ? await authority.ListAllAsync(ct)
                 : await authority.ListAsync(ct);
@@ -251,7 +251,7 @@ internal static class LifecycleRegistrationEndpoints
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
-            if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+            if (!Has(context, "Configuration.Manage")) return Forbidden();
             try
             {
                 LifecycleRegistrationRecord? record = await authority.DecideAsync(
@@ -283,7 +283,7 @@ internal static class LifecycleRegistrationEndpoints
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
-            if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+            if (!Has(context, "Configuration.Manage")) return Forbidden();
             if (string.IsNullOrWhiteSpace(request.Reason))
                 return Results.BadRequest(new { error = "A reason is required to reject a registration." });
             try
@@ -316,7 +316,7 @@ internal static class LifecycleRegistrationEndpoints
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
-            if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+            if (!Has(context, "Configuration.Manage")) return Forbidden();
             if (string.IsNullOrWhiteSpace(request.Reason))
                 return Results.BadRequest(new { error = "A reason is required to revoke a registration." });
             try
@@ -350,7 +350,7 @@ internal static class LifecycleRegistrationEndpoints
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
-            if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+            if (!Has(context, "Configuration.Manage")) return Forbidden();
             if (string.IsNullOrWhiteSpace(request.Reason))
                 return Results.BadRequest(new { error = "A reason is required to purge a registration." });
             try
@@ -383,7 +383,7 @@ internal static class LifecycleRegistrationEndpoints
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
-            if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+            if (!Has(context, "Configuration.Manage")) return Forbidden();
             try
             {
                 LifecycleRegistrationRecord? record = await authority.RetainExistingIdentityAsync(
@@ -415,7 +415,7 @@ internal static class LifecycleRegistrationEndpoints
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
-            if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+            if (!Has(context, "Configuration.Manage")) return Forbidden();
             if (string.IsNullOrWhiteSpace(request.Reason))
                 return Results.BadRequest(new { error = "A reason is required to replace an existing registration identity." });
             try
@@ -450,6 +450,9 @@ internal static class LifecycleRegistrationEndpoints
         });
 
     }
+
+    private static IResult Forbidden() =>
+        Results.Json(new { error = "Forbidden", detail = "The authenticated SuiteSecurity session does not have the required permission." }, statusCode: StatusCodes.Status403Forbidden);
 
     private static IResult PersistenceFailure(string action, PostgresException ex) =>
         Results.Problem(
