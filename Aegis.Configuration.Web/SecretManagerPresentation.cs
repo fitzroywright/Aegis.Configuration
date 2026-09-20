@@ -33,7 +33,7 @@ internal static class SecretManagerPresentation
 
         string content = $"""
 <style>{Css}</style>
-<section class='page-head'><div><h1>{E(contract.DisplayName)} Secrets</h1><p>Common.Secrets capability assistance. Secret values are never stored or displayed here.</p></div></section>
+<section class='page-head'><div><p>Common.Secrets capability assistance. Secret values are never stored or displayed here.</p></div></section>
 <section class='panel secret-summary'>
   <div class='detail-head'><span class='bigicon'>🔐</span><div><h2>{E(status.ProviderName)}</h2><small>Provider reported through Common.Secrets for {E(contract.ApplicationId)}</small></div><span class='status {(status.IsHealthy ? "good" : "warn")}'>{E(status.IssueLabel)}</span></div>
   <div class='facts'><div><small>PROVIDER</small><b>{E(status.ProviderName)}</b></div><div><small>CONNECTION</small><b>{E(status.ConnectionStatus)}</b></div><div><small>CREDENTIALS</small><b>{E(status.CredentialStatus)}</b></div><div><small>REQUIRED SECRETS</small><b>{requiredSecrets}</b></div></div>
