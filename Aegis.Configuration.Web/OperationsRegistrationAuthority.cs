@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using Common.Registration;
 
 internal sealed class OperationsRegistrationAuthority(
     IConfiguration configuration,
@@ -20,7 +21,10 @@ internal sealed class OperationsRegistrationAuthority(
             return false;
         }
 
-        string operationsUrl = (configuration["Aegis:Operations:Url"] ?? "http://127.0.0.1:5100").TrimEnd('/');
+        string operationsUrl = AegisControlPlaneEndpoints.ResolveInternal(
+            configuration,
+            AegisControlPlaneService.Operations,
+            logger);
         using HttpClient client = httpClientFactory.CreateClient("operations-registration");
         using var validationRequest = new HttpRequestMessage(
             HttpMethod.Post,
