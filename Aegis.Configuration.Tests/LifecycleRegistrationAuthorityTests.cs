@@ -388,6 +388,66 @@ public sealed class LifecycleRegistrationAuthorityTests
     }
 
     [Fact]
+    public async Task InvalidDecisionState_IsRejected()
+    {
+        var store = new InMemoryLifecycleRegistrationStore();
+        LifecycleRegistrationAuthority authority = CreateAuthority(store);
+
+        (LifecycleRegistrationRecord registered, _) =
+            await RegisterAsync(authority, "install-decision");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            authority.DecideAsync(
+                registered.RegistrationId,
+                true,
+                "administrator",
+                null,
+                null,
+                "invalid approve",
+                "corr-invalid-approve",
+                CancellationToken.None));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            authority.DecideAsync(
+                registered.RegistrationId,
+                false,
+                "administrator",
+                null,
+                null,
+                "invalid reject",
+                "corr-invalid-reject",
+                CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task RevokeRequiresRegisteredState()
+    {
+        var store = new InMemoryLifecycleRegistrationStore();
+        LifecycleRegistrationAuthority authority = CreateAuthority(store);
+
+        LifecycleIntroductionResult pending = await authority.IntroduceAsync(
+            "Aegis.Hello",
+            "Production",
+            "install-pending-revoke",
+            null,
+            "intro",
+            null,
+            null,
+            "corr-intro",
+            CancellationToken.None);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            authority.RevokeAsync(
+                pending.Record.RegistrationId,
+                "administrator",
+                null,
+                null,
+                "invalid revoke",
+                "corr-invalid-revoke",
+                CancellationToken.None));
+    }
+
+    [Fact]
     public async Task PurgeBeforeRevokeOrReject_IsRejected()
     {
         var store = new InMemoryLifecycleRegistrationStore();
