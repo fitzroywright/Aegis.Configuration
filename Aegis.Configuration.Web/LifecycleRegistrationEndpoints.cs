@@ -252,17 +252,28 @@ internal static class LifecycleRegistrationEndpoints
             CancellationToken ct) =>
         {
             if (!Has(context, "Configuration.Manage")) return Results.Forbid();
-            LifecycleRegistrationRecord? record = await authority.DecideAsync(
-                registrationId, true, Actor(context),
-                context.Connection.RemoteIpAddress?.ToString(),
-                context.Request.Headers.UserAgent.ToString(),
-                request.Reason, Correlation(context), ct);
-            return record is null ? Results.NotFound() : Results.Ok(new
+            try
             {
-                record.RegistrationId,
-                state = record.State.ToString(),
-                record.ApprovedAtUtc
-            });
+                LifecycleRegistrationRecord? record = await authority.DecideAsync(
+                    registrationId, true, Actor(context),
+                    context.Connection.RemoteIpAddress?.ToString(),
+                    context.Request.Headers.UserAgent.ToString(),
+                    request.Reason, Correlation(context), ct);
+                return record is null ? Results.NotFound() : Results.Ok(new
+                {
+                    record.RegistrationId,
+                    state = record.State.ToString(),
+                    record.ApprovedAtUtc
+                });
+            }
+            catch (PostgresException ex)
+            {
+                return PersistenceFailure("approve", ex);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
         });
 
         app.MapPost("/api/registration/{registrationId}/reject", async (
@@ -273,16 +284,29 @@ internal static class LifecycleRegistrationEndpoints
             CancellationToken ct) =>
         {
             if (!Has(context, "Configuration.Manage")) return Results.Forbid();
-            LifecycleRegistrationRecord? record = await authority.DecideAsync(
-                registrationId, false, Actor(context),
-                context.Connection.RemoteIpAddress?.ToString(),
-                context.Request.Headers.UserAgent.ToString(),
-                request.Reason, Correlation(context), ct);
-            return record is null ? Results.NotFound() : Results.Ok(new
+            if (string.IsNullOrWhiteSpace(request.Reason))
+                return Results.BadRequest(new { error = "A reason is required to reject a registration." });
+            try
             {
-                record.RegistrationId,
-                state = record.State.ToString()
-            });
+                LifecycleRegistrationRecord? record = await authority.DecideAsync(
+                    registrationId, false, Actor(context),
+                    context.Connection.RemoteIpAddress?.ToString(),
+                    context.Request.Headers.UserAgent.ToString(),
+                    request.Reason, Correlation(context), ct);
+                return record is null ? Results.NotFound() : Results.Ok(new
+                {
+                    record.RegistrationId,
+                    state = record.State.ToString()
+                });
+            }
+            catch (PostgresException ex)
+            {
+                return PersistenceFailure("reject", ex);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
         });
 
         app.MapPost("/api/registration/{registrationId}/revoke", async (
@@ -293,6 +317,8 @@ internal static class LifecycleRegistrationEndpoints
             CancellationToken ct) =>
         {
             if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+            if (string.IsNullOrWhiteSpace(request.Reason))
+                return Results.BadRequest(new { error = "A reason is required to revoke a registration." });
             try
             {
                 LifecycleRegistrationRecord? record = await authority.RevokeAsync(
@@ -309,10 +335,7 @@ internal static class LifecycleRegistrationEndpoints
             }
             catch (PostgresException ex)
             {
-                return Results.Problem(
-                    title: "Registration persistence failed",
-                    detail: $"Database rejected revoke: {ex.SqlState} {ex.MessageText}",
-                    statusCode: StatusCodes.Status503ServiceUnavailable);
+                return PersistenceFailure("revoke", ex);
             }
             catch (InvalidOperationException ex)
             {
@@ -328,6 +351,8 @@ internal static class LifecycleRegistrationEndpoints
             CancellationToken ct) =>
         {
             if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+            if (string.IsNullOrWhiteSpace(request.Reason))
+                return Results.BadRequest(new { error = "A reason is required to purge a registration." });
             try
             {
                 LifecycleRegistrationRecord? record = await authority.PurgeAsync(
@@ -340,6 +365,10 @@ internal static class LifecycleRegistrationEndpoints
                     record.RegistrationId,
                     state = record.State.ToString()
                 });
+            }
+            catch (PostgresException ex)
+            {
+                return PersistenceFailure("purge", ex);
             }
             catch (InvalidOperationException ex)
             {
@@ -368,6 +397,10 @@ internal static class LifecycleRegistrationEndpoints
                     state = record.State.ToString()
                 });
             }
+            catch (PostgresException ex)
+            {
+                return PersistenceFailure("retain existing identity", ex);
+            }
             catch (InvalidOperationException ex)
             {
                 return Results.Conflict(new { error = ex.Message });
@@ -383,6 +416,8 @@ internal static class LifecycleRegistrationEndpoints
             CancellationToken ct) =>
         {
             if (!Has(context, "Configuration.Manage")) return Results.Forbid();
+            if (string.IsNullOrWhiteSpace(request.Reason))
+                return Results.BadRequest(new { error = "A reason is required to replace an existing registration identity." });
             try
             {
                 LifecycleRegistrationRecord? record =
@@ -404,6 +439,10 @@ internal static class LifecycleRegistrationEndpoints
                         next = "Incoming installation must retry registration and will create a fresh Pending request."
                     });
             }
+            catch (PostgresException ex)
+            {
+                return PersistenceFailure("replace registration identity", ex);
+            }
             catch (InvalidOperationException ex)
             {
                 return Results.Conflict(new { error = ex.Message });
@@ -411,6 +450,12 @@ internal static class LifecycleRegistrationEndpoints
         });
 
     }
+
+    private static IResult PersistenceFailure(string action, PostgresException ex) =>
+        Results.Problem(
+            title: "Registration persistence failed",
+            detail: $"Database rejected {action}: {ex.SqlState} {ex.MessageText}",
+            statusCode: StatusCodes.Status503ServiceUnavailable);
 
     private static bool Valid(string? app, string? instance, string? installation)
         => !string.IsNullOrWhiteSpace(app) &&
