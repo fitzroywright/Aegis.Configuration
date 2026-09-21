@@ -41,10 +41,12 @@ internal static class ConfigurationShell
   <div class="workspace-arm"><div class="workspace-title">__TITLE__</div><div class="last-scan" id="lastScan">Last Scan: SCANNING</div></div>
   <div class="workspace-leg"></div>
   <nav class="workspace-nav">
-    <a class="__APPS__" href="/">Applications</a>
-    <a class="__CONTRACTS__" href="/contracts">Contracts</a>
-    <a class="__RUNBOOKS__" href="/runbooks">Runbooks</a>
-    <a class="__ORPHANED__" href="/orphaned">Orphaned</a>
+    <a class="__OVERVIEW__" href="/">Overview</a>
+    <a class="__APPS__" href="/applications">Applications</a>
+    <a class="__SETTINGS__" href="/settings">Settings</a>
+    <a class="__SECRETS__" href="/secrets">Secrets</a>
+    <a class="__PROVIDERS__" href="/providers">Providers</a>
+    <a class="__LOGS__" href="/logs">Logs</a>
   </nav>
   <button class="lcars-back" type="button" onclick="if(history.length>1){history.back()}else{location.href='/'}">Back</button>
   <main class="detail-scroll">__CONTENT__</main>
@@ -126,11 +128,12 @@ installAegisConsoleAudio();
         return html
             .Replace("__TITLE__", HtmlEncoder.Default.Encode(title), StringComparison.Ordinal)
             .Replace("__CSS__", BaseCss + "\n" + GlossyCss.Value, StringComparison.Ordinal)
+            .Replace("__OVERVIEW__", active == "overview" ? "active" : "", StringComparison.Ordinal)
             .Replace("__APPS__", active == "applications" ? "active" : "", StringComparison.Ordinal)
-            .Replace("__RUNBOOKS__", active == "runbooks" ? "active" : "", StringComparison.Ordinal)
-            .Replace("__CONTRACTS__", active == "contracts" ? "active" : "", StringComparison.Ordinal)
-            .Replace("__ORPHANED__", active == "orphaned" ? "active" : "", StringComparison.Ordinal)
-            .Replace("__REGISTRATION__", active == "registration" ? "active" : "", StringComparison.Ordinal)
+            .Replace("__SETTINGS__", active == "settings" ? "active" : "", StringComparison.Ordinal)
+            .Replace("__SECRETS__", active == "secrets" ? "active" : "", StringComparison.Ordinal)
+            .Replace("__PROVIDERS__", active == "providers" ? "active" : "", StringComparison.Ordinal)
+            .Replace("__LOGS__", active == "logs" ? "active" : "", StringComparison.Ordinal)
             .Replace("__VERSION__", HtmlEncoder.Default.Encode(version), StringComparison.Ordinal)
             .Replace("__CONTENT__", content, StringComparison.Ordinal);
     }
