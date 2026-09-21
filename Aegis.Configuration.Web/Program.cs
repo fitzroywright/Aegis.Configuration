@@ -268,13 +268,7 @@ app.MapGet("/providers", async (IConfigurationContractStore store, Configuration
     return Html(ConfigurationShell.Render("Providers", content, "providers"));
 });
 
-app.MapGet("/logs", () =>
-{
-    string content =
-        "<section class='page-head'><div><p>Configuration service logs are centralized in Aegis Operations.</p></div></section>" +
-        "<section class='panel'><p>Open the control-plane log viewer and filter for <b>Aegis.Configuration</b>.</p><div class='actions'><a class='row-action' href='https://operations.ffpja.org/logs'>Open Logs</a></div></section>";
-    return Html(ConfigurationShell.Render("Logs", content, "logs"));
-});
+app.MapGet("/logs", () => Results.Redirect("https://operations.ffpja.org/logs?mode=appLogs&applicationId=Aegis.Configuration"));
 
 app.MapGet("/applications/{applicationId}", async (string applicationId, IConfigurationContractStore store, ConfigurationEvaluator evaluator, CancellationToken ct) =>
 {
