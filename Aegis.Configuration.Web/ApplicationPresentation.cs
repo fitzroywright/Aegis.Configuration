@@ -14,6 +14,7 @@ internal static class ApplicationPresentation
         string commissioning = RenderCommissioningSummary(evaluation);
         string runtime = RenderRuntime(contract.RuntimeEnvironment);
         string diagnostics = RenderDiagnostics(contract.Diagnostics);
+        string providers = RenderProviders(evaluation);
         string appId = Uri.EscapeDataString(contract.ApplicationId);
 
         string content = $"""
@@ -27,13 +28,14 @@ internal static class ApplicationPresentation
     <div><small>LAST REGISTERED</small><b>{Registered(contract.LastRegisteredAtUtc)}</b></div>
     <div><small>APPLICATION ID</small><b>{E(contract.ApplicationId)}</b></div>
   </div>
-  <nav class='tabs presentation-tabs'><a href='/applications/{appId}'>Requirements</a><b>Details</b><a href='#diagnostics'>Diagnostics</a><a href='/runbooks/{appId}'>Runbook</a><a href='/applications/{appId}/contract'>Contract</a></nav>
+  <nav class='tabs presentation-tabs'><a href='/applications/{appId}'>Requirements</a><b>Details</b><a href='#settings'>Settings</a><a href='/applications/{appId}/secrets'>Secrets</a><a href='#providers'>Providers</a><a href='#diagnostics'>Diagnostics</a><a href='/runbooks/{appId}'>Runbook</a><a href='/applications/{appId}/contract'>Contract</a></nav>
 </section>
 {commissioning}
-<section class='presentation-grid'>
+<section id='settings' class='presentation-grid'>
   <section class='panel presentation-panel'><h2>Required Configuration</h2>{required}</section>
   <section class='panel presentation-panel'><h2>Optional Configuration</h2>{optional}</section>
 </section>
+<section id='providers' class='panel presentation-panel'><h2>Configuration Providers</h2>{providers}</section>
 <section id='diagnostics' class='panel presentation-panel'><h2>Diagnostics Capability</h2>{diagnostics}</section>
 <section class='panel presentation-panel'><h2>Detected Runtime Environment</h2>{runtime}</section>
 <details class='panel raw-section'><summary>Raw commissioning report</summary><p class='muted'>Troubleshooting view. The formatted application details above remain the primary presentation.</p><pre class='raw-box'>{E(rawReport)}</pre></details>
@@ -120,6 +122,22 @@ internal static class ApplicationPresentation
         return "<div class='presentation-table'><table><thead><tr><th>Requirement</th><th>Kind</th><th>Key / Secret</th><th>Declared State</th><th>Commissioning</th></tr></thead><tbody>" +
                string.Join("", rows.Select(r => $"<tr><td><b>{E(r.DisplayName)}</b><small>{E(r.Purpose)}</small></td><td>{E(r.Kind.ToString())}</td><td><code>{E(r.Sensitive ? (r.SecretName ?? r.ConfigurationKey) : (r.ConfigurationKey ?? r.SecretName))}</code></td><td>{E(r.ConfigurationState ?? (r.IsConfigured == true ? "Configured" : r.IsConfigured == false ? "Missing" : "Unknown"))}</td><td><small>{E(r.VerificationStatus)}</small></td></tr>")) +
                "</tbody></table></div>";
+    }
+
+    private static string RenderProviders(ConfigurationEvaluation evaluation)
+    {
+        string[] providers = evaluation.Requirements
+            .Select(x => x.EffectiveSource)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (providers.Length == 0)
+            return "<div class='empty'>No configuration provider information has been published for this application.</div>";
+
+        return "<div class='reqs'>" + string.Join("", providers.Select(provider =>
+            $"<div class='req'><span><b>{E(provider)}</b><small>Published source for this application's effective configuration.</small></span><code>Application-scoped</code><i class='ok'>✓</i></div>")) + "</div>";
     }
 
     private static string RenderDiagnostics(DiagnosticsCapability? d)
