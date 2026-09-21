@@ -178,7 +178,7 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
             record.Metadata?.ToJsonString() ?? "null");
         command.Parameters.AddWithValue(
             "audit_json",
-            JsonSerializer.Serialize(record.Audit, JsonOptions));
+            "[]");
         command.Parameters.AddWithValue(
             "conflict_installation_id",
             (object?)record.ConflictInstallationId ?? DBNull.Value);
@@ -186,8 +186,9 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
         await command.ExecuteNonQueryAsync(ct);
 
         bool latestAuditInserted = false;
-        for (int eventIndex = 0; eventIndex < record.Audit.Count; eventIndex++)
+        if (record.Audit.Count > 0)
         {
+            int eventIndex = record.Audit.Count - 1;
             LifecycleAuditEvent audit = record.Audit[eventIndex];
             await using var auditCommand = new NpgsqlCommand(
                 """
@@ -219,14 +220,12 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
             auditCommand.Parameters.AddWithValue("correlation_id", (object?)audit.CorrelationId ?? DBNull.Value);
             auditCommand.Parameters.AddWithValue("previous_state", (object?)audit.PreviousState?.ToString() ?? DBNull.Value);
             auditCommand.Parameters.AddWithValue("resulting_state", audit.ResultingState.ToString());
-            int inserted = await auditCommand.ExecuteNonQueryAsync(ct);
-            if (eventIndex == record.Audit.Count - 1 && inserted > 0)
-                latestAuditInserted = true;
+            latestAuditInserted = await auditCommand.ExecuteNonQueryAsync(ct) > 0;
         }
 
         await transaction.CommitAsync(ct);
 
-        if (latestAuditInserted && record.Audit.Count > 0)
+        if (latestAuditInserted)
             await _telemetry.PublishAsync(record, record.Audit[^1], CancellationToken.None);
     }
 
