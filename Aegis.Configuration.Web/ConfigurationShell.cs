@@ -6,6 +6,15 @@ internal static class ConfigurationShell
     public static string Render(string title, string content, string active)
     {
         string version = typeof(ConfigurationShell).Assembly.GetName().Version?.ToString() ?? "unknown";
+        string navTitle = active switch
+        {
+            "overview" => "Overview",
+            "applications" => "Applications",
+            "contracts" => "Contracts",
+            "runbooks" => "Runbooks",
+            "logs" => "Logs",
+            _ => title
+        };
         string html = """
 <!doctype html>
 <html>
@@ -38,7 +47,7 @@ internal static class ConfigurationShell
 </header>
 
 <section class="workspace-shell">
-  <div class="workspace-arm"><div class="workspace-title">__TITLE__</div><div class="last-scan" id="lastScan">Last Scan: SCANNING</div></div>
+  <div class="workspace-arm"><div class="workspace-title">__NAV_TITLE__</div><div class="last-scan" id="lastScan">Last Scan: SCANNING</div></div>
   <div class="workspace-leg"></div>
   <nav class="workspace-nav">
     <a class="__OVERVIEW__" href="/">Overview</a>
@@ -126,6 +135,7 @@ installAegisConsoleAudio();
 """;
         return html
             .Replace("__TITLE__", HtmlEncoder.Default.Encode(title), StringComparison.Ordinal)
+            .Replace("__NAV_TITLE__", HtmlEncoder.Default.Encode(navTitle), StringComparison.Ordinal)
             .Replace("__CSS__", BaseCss + "\n" + GlossyCss.Value, StringComparison.Ordinal)
             .Replace("__OVERVIEW__", active == "overview" ? "active" : "", StringComparison.Ordinal)
             .Replace("__APPS__", active == "applications" ? "active" : "", StringComparison.Ordinal)
