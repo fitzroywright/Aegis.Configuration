@@ -870,19 +870,7 @@ internal sealed class LifecycleRegistrationAuthority
         string instanceId,
         CancellationToken ct)
     {
-        return (await _store.LoadAllAsync(ct))
-            .Where(x =>
-                x.State != LifecycleRegistrationState.Purged &&
-                string.Equals(
-                    x.ApplicationId,
-                    applicationId,
-                    StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(
-                    x.InstanceId,
-                    instanceId,
-                    StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(x => x.CreatedAtUtc)
-            .FirstOrDefault();
+        return await _store.LoadActiveAsync(applicationId, instanceId, ct);
     }
 
     private static string Token()
