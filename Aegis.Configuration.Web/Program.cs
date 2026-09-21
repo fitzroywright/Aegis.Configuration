@@ -222,51 +222,11 @@ app.MapGet("/applications", async (IConfigurationContractStore store, Configurat
     return Html(RenderDashboard(rows, null, orphanedContracts, "applications"));
 });
 
-app.MapGet("/settings", () =>
-{
-    string content =
-        "<section class='page-head'><div><p>Configuration service settings and supporting control-plane artifacts.</p></div></section>" +
-        "<section class='panel'><div class='quick'><a href='/contracts'><b>Application Contracts</b><small>Published configuration requirements and validation state.</small></a><a href='/runbooks'><b>Runbooks</b><small>Generated commissioning and recovery guidance.</small></a><a href='/orphaned'><b>Orphaned Contracts</b><small>Retired configuration contracts retained for review.</small></a></div></section>";
-    return Html(ConfigurationShell.Render("Settings", content, "settings"));
-});
+app.MapGet("/settings", () => Results.Redirect("/applications"));
 
-app.MapGet("/secrets", async (IConfigurationContractStore store, ConfigurationEvaluator evaluator, CancellationToken ct) =>
-{
-    var contracts = (await store.LoadAllAsync(ct)).OrderBy(x => x.DisplayName).ToList();
-    var rows = new List<string>();
-    foreach (var contract in contracts)
-    {
-        ConfigurationEvaluation evaluation = await evaluator.EvaluateAsync(contract, ct);
-        SecretManagerStatus status = SecretManagerEvaluator.Evaluate(contract, evaluation);
-        if (!status.HasSecrets) continue;
-        string appId = Uri.EscapeDataString(contract.ApplicationId);
-        rows.Add($"<div class='req'><span><b>{E(contract.DisplayName)}</b><small>{E(status.ProviderName)} · {E(status.ConnectionStatus)} · {status.IssueCount} issue{(status.IssueCount == 1 ? "" : "s")}</small></span><a class='runbook-open' href='/applications/{appId}/secrets'>Open</a><i class='{(status.IsHealthy ? "ok" : "bad")}'>{(status.IsHealthy ? "✓" : "!")}</i></div>");
-    }
-    string content =
-        "<section class='page-head'><div><p>Provider-neutral Common.Secrets status for registered applications. Secret values are never displayed here.</p></div></section>" +
-        "<section class='panel'><div class='reqs'>" + (rows.Count == 0 ? "<div class='empty'>No applications currently declare secret requirements.</div>" : string.Join("", rows)) + "</div></section>";
-    return Html(ConfigurationShell.Render("Secrets", content, "secrets"));
-});
+app.MapGet("/secrets", () => Results.Redirect("/applications"));
 
-app.MapGet("/providers", async (IConfigurationContractStore store, ConfigurationEvaluator evaluator, CancellationToken ct) =>
-{
-    var contracts = (await store.LoadAllAsync(ct)).OrderBy(x => x.DisplayName).ToList();
-    var providerRows = new List<(string App, string Provider, string? Connection, int Issues)>();
-    foreach (var contract in contracts)
-    {
-        ConfigurationEvaluation evaluation = await evaluator.EvaluateAsync(contract, ct);
-        SecretManagerStatus status = SecretManagerEvaluator.Evaluate(contract, evaluation);
-        if (!status.HasSecrets) continue;
-        providerRows.Add((contract.DisplayName, status.ProviderName, status.ConnectionStatus, status.IssueCount));
-    }
-    string rows = providerRows.Count == 0
-        ? "<tr><td colspan='4' class='empty'>No secret providers are currently declared.</td></tr>"
-        : string.Join("", providerRows.Select(x => $"<tr><td><b>{E(x.App)}</b></td><td>{E(x.Provider)}</td><td>{E(x.Connection)}</td><td>{x.Issues}</td></tr>"));
-    string content =
-        "<section class='page-head'><div><p>Providers reported by applications through Common.Secrets.</p></div></section>" +
-        "<section class='panel table-panel'><table><thead><tr><th>Application</th><th>Provider</th><th>Connection</th><th>Issues</th></tr></thead><tbody>" + rows + "</tbody></table></section>";
-    return Html(ConfigurationShell.Render("Providers", content, "providers"));
-});
+app.MapGet("/providers", () => Results.Redirect("/applications"));
 
 app.MapGet("/logs", () => Results.Redirect("https://operations.ffpja.org/logs?mode=appLogs&applicationId=Aegis.Configuration"));
 
