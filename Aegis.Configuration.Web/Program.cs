@@ -272,7 +272,7 @@ app.MapGet("/logs", () =>
 {
     string content =
         "<section class='page-head'><div><p>Configuration service logs are centralized in Aegis Operations.</p></div></section>" +
-        "<section class='panel'><p>Open the control-plane log viewer and filter for <b>Aegis.Configuration</b>.</p><div class='actions'><a class='row-action' href='https://operations.ffpja.org/activity'>Open Logs</a></div></section>";
+        "<section class='panel'><p>Open the control-plane log viewer and filter for <b>Aegis.Configuration</b>.</p><div class='actions'><a class='row-action' href='https://operations.ffpja.org/logs'>Open Logs</a></div></section>";
     return Html(ConfigurationShell.Render("Logs", content, "logs"));
 });
 
