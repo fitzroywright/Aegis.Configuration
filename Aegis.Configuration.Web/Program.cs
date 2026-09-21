@@ -210,7 +210,70 @@ app.MapGet("/", async (IConfigurationContractStore store, ConfigurationEvaluator
     var rows = new List<(ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation)>();
     foreach (var c in contracts) rows.Add((c, await evaluator.EvaluateAsync(c, ct)));
     int orphanedContracts = await contractStore.CountRetiredAsync("orphaned", ct);
-    return Html(RenderDashboard(rows, null, orphanedContracts));
+    return Html(RenderDashboard(rows, null, orphanedContracts, "overview"));
+});
+
+app.MapGet("/applications", async (IConfigurationContractStore store, ConfigurationEvaluator evaluator, CancellationToken ct) =>
+{
+    var contracts = (await store.LoadAllAsync(ct)).OrderBy(x => x.DisplayName).ToList();
+    var rows = new List<(ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation)>();
+    foreach (var contract in contracts) rows.Add((contract, await evaluator.EvaluateAsync(contract, ct)));
+    int orphanedContracts = await contractStore.CountRetiredAsync("orphaned", ct);
+    return Html(RenderDashboard(rows, null, orphanedContracts, "applications"));
+});
+
+app.MapGet("/settings", () =>
+{
+    string content =
+        "<section class='page-head'><div><p>Configuration service settings and supporting control-plane artifacts.</p></div></section>" +
+        "<section class='panel'><div class='quick'><a href='/contracts'><b>Application Contracts</b><small>Published configuration requirements and validation state.</small></a><a href='/runbooks'><b>Runbooks</b><small>Generated commissioning and recovery guidance.</small></a><a href='/orphaned'><b>Orphaned Contracts</b><small>Retired configuration contracts retained for review.</small></a></div></section>";
+    return Html(ConfigurationShell.Render("Settings", content, "settings"));
+});
+
+app.MapGet("/secrets", async (IConfigurationContractStore store, ConfigurationEvaluator evaluator, CancellationToken ct) =>
+{
+    var contracts = (await store.LoadAllAsync(ct)).OrderBy(x => x.DisplayName).ToList();
+    var rows = new List<string>();
+    foreach (var contract in contracts)
+    {
+        ConfigurationEvaluation evaluation = await evaluator.EvaluateAsync(contract, ct);
+        SecretManagerStatus status = SecretManagerEvaluator.Evaluate(contract, evaluation);
+        if (!status.HasSecrets) continue;
+        string appId = Uri.EscapeDataString(contract.ApplicationId);
+        rows.Add($"<div class='req'><span><b>{E(contract.DisplayName)}</b><small>{E(status.ProviderName)} · {E(status.ConnectionStatus)} · {status.IssueCount} issue{(status.IssueCount == 1 ? "" : "s")}</small></span><a class='runbook-open' href='/applications/{appId}/secrets'>Open</a><i class='{(status.IsHealthy ? "ok" : "bad")}'>{(status.IsHealthy ? "✓" : "!")}</i></div>");
+    }
+    string content =
+        "<section class='page-head'><div><p>Provider-neutral Common.Secrets status for registered applications. Secret values are never displayed here.</p></div></section>" +
+        "<section class='panel'><div class='reqs'>" + (rows.Count == 0 ? "<div class='empty'>No applications currently declare secret requirements.</div>" : string.Join("", rows)) + "</div></section>";
+    return Html(ConfigurationShell.Render("Secrets", content, "secrets"));
+});
+
+app.MapGet("/providers", async (IConfigurationContractStore store, ConfigurationEvaluator evaluator, CancellationToken ct) =>
+{
+    var contracts = (await store.LoadAllAsync(ct)).OrderBy(x => x.DisplayName).ToList();
+    var providerRows = new List<(string App, string Provider, string? Connection, int Issues)>();
+    foreach (var contract in contracts)
+    {
+        ConfigurationEvaluation evaluation = await evaluator.EvaluateAsync(contract, ct);
+        SecretManagerStatus status = SecretManagerEvaluator.Evaluate(contract, evaluation);
+        if (!status.HasSecrets) continue;
+        providerRows.Add((contract.DisplayName, status.ProviderName, status.ConnectionStatus, status.IssueCount));
+    }
+    string rows = providerRows.Count == 0
+        ? "<tr><td colspan='4' class='empty'>No secret providers are currently declared.</td></tr>"
+        : string.Join("", providerRows.Select(x => $"<tr><td><b>{E(x.App)}</b></td><td>{E(x.Provider)}</td><td>{E(x.Connection)}</td><td>{x.Issues}</td></tr>"));
+    string content =
+        "<section class='page-head'><div><p>Providers reported by applications through Common.Secrets.</p></div></section>" +
+        "<section class='panel table-panel'><table><thead><tr><th>Application</th><th>Provider</th><th>Connection</th><th>Issues</th></tr></thead><tbody>" + rows + "</tbody></table></section>";
+    return Html(ConfigurationShell.Render("Providers", content, "providers"));
+});
+
+app.MapGet("/logs", () =>
+{
+    string content =
+        "<section class='page-head'><div><p>Configuration service logs are centralized in Aegis Operations.</p></div></section>" +
+        "<section class='panel'><p>Open the control-plane log viewer and filter for <b>Aegis.Configuration</b>.</p><div class='actions'><a class='row-action' href='https://operations.ffpja.org/activity'>Open Logs</a></div></section>";
+    return Html(ConfigurationShell.Render("Logs", content, "logs"));
 });
 
 app.MapGet("/applications/{applicationId}", async (string applicationId, IConfigurationContractStore store, ConfigurationEvaluator evaluator, CancellationToken ct) =>
@@ -220,7 +283,7 @@ app.MapGet("/applications/{applicationId}", async (string applicationId, IConfig
     foreach (var c in contracts) rows.Add((c, await evaluator.EvaluateAsync(c, ct)));
     int selected = rows.FindIndex(x => string.Equals(x.Contract.ApplicationId, applicationId, StringComparison.OrdinalIgnoreCase));
     int orphanedContracts = await contractStore.CountRetiredAsync("orphaned", ct);
-    return selected < 0 ? Results.NotFound() : Html(RenderDashboard(rows, selected, orphanedContracts));
+    return selected < 0 ? Results.NotFound() : Html(RenderDashboard(rows, selected, orphanedContracts, "applications"));
 });
 
 app.MapGet("/applications/{applicationId}/details", async (string applicationId, IConfigurationContractStore store, ConfigurationEvaluator evaluator, CommissioningReportRenderer renderer, CancellationToken ct) =>
@@ -734,16 +797,16 @@ static string Registered(DateTimeOffset? value, string format) => value.HasValue
     ? $"<time class='local-datetime' datetime='{E(value.Value.ToString("O"))}'>{E(value.Value.ToString(format))}</time>"
     : "Never";
 
-static string RenderDashboard(List<(ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation)> rows, int? selectedIndex, int orphanedContracts = 0)
+static string RenderDashboard(List<(ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation)> rows, int? selectedIndex, int orphanedContracts = 0, string active = "overview")
 {
     int configured = rows.Count(x => x.Evaluation.IsComplete);
     int requirements = rows.Sum(x => x.Evaluation.Requirements.Count);
     string tableRows = rows.Count == 0 ? "<tr><td colspan='9' class='empty'>No applications registered.</td></tr>" : string.Join("", rows.Select((x, i) => RenderApplicationRow(x, i, selectedIndex == i)));
     int selected = selectedIndex ?? (rows.Count > 0 ? 0 : -1);
     string detail = selected < 0 ? "<section class='detail'><div class='empty'>Applications appear here automatically after they register with System Configuration.</div></section>" : RenderDetails(rows[selected]);
-    string activity = rows.Count == 0 ? "<div class='empty'>No registration activity.</div>" : string.Join("", rows.OrderByDescending(x => x.Contract.LastRegisteredAtUtc).Take(4).Select(x => $"<div class='activity-row'><i></i><span><b>{E(x.Contract.DisplayName)}</b><small>Configuration contract registered</small></span><time>{Registered(x.Contract.LastRegisteredAtUtc, "MMM d, HH:mm")}</time></div>"));
-    string content = $"<style>{SecretManagerStyles()}</style><section class='page-head'><div><p>All registered applications and their configuration status</p></div></section><section class='toolbar'><input id='search' placeholder='⌕  Search applications...'><select id='statusFilter'><option value=''>All Status</option><option>Configured</option><option>Not Configured</option></select><button onclick='location.reload()'>↻</button><button class='primary' onclick='document.getElementById(\"registrationInfoDialog\").showModal()'>ⓘ Application Registration</button></section><section class='metrics'><a class='metric' href='/'><span>▦</span><b>{rows.Count}</b><small>Total Applications</small></a><a class='metric green' href='/?status=Configured'><span>✓</span><b>{configured}</b><small>Configured</small></a><a class='metric{(rows.Count - configured > 0 ? " amber" : "")}' href='/?status=Not%20Configured'><span>!</span><b>{rows.Count - configured}</b><small>Not Configured</small></a><a class='metric{(orphanedContracts > 0 ? " amber" : "")}' href='/orphaned'><span>⚠</span><b>{orphanedContracts}</b><small>Orphaned Contracts</small></a><a class='metric' href='/contracts'><span>≡</span><b>{requirements}</b><small>Total Requirements</small></a></section><section class='workspace'><div><section class='panel table-panel'><table id='apps'><thead><tr><th>Application</th><th>Version</th><th>Site / Instance</th><th>Configuration</th><th>Secrets</th><th>Required</th><th>Optional</th><th>Last Updated</th><th></th></tr></thead><tbody>{tableRows}</tbody></table></section><section class='lower'><div class='panel'><h3>◴ Recent Activity</h3>{activity}</div><div class='panel'><h3>⌘ Quick Links</h3><div class='quick'><a href='/runbooks'>▤ <span><b>Configuration Runbooks</b><small>Commissioning and recovery guidance</small></span></a><a href='/contracts'>◇ <span><b>Application Contracts</b><small>Human-readable contract views</small></span></a><a href='/orphaned'>⚠ <span><b>Orphaned Contracts</b><small>Retired contracts with no active registration</small></span></a></div></div></section></div>{detail}</section><dialog id='registrationInfoDialog'><h2>Applications Register Automatically</h2><p>Applications publish their configuration requirements to System Configuration when they start. You do not manually add applications here.</p><p><b>Configuration Server</b><br><code id='configurationServerUrl'></code></p><p><b>Registration Endpoint</b><br><code id='registrationEndpointUrl'></code></p><p>Applications should normally configure <code>Aegis:Configuration:Url</code> with the Configuration Server address above.</p><p class='muted'>Normal applications authenticate directly with Configuration using their durable Common.Registration identity. Control-plane services use their restricted bootstrap identity. Secret values are never displayed here.</p><button onclick='this.closest(\"dialog\").close()'>Close</button></dialog>";
-    return ConfigurationShell.Render("Applications", content, "applications");
+    string activity = rows.Count == 0 ? "<div class='empty'>No registration logs.</div>" : string.Join("", rows.OrderByDescending(x => x.Contract.LastRegisteredAtUtc).Take(4).Select(x => $"<div class='activity-row'><i></i><span><b>{E(x.Contract.DisplayName)}</b><small>Configuration contract registered</small></span><time>{Registered(x.Contract.LastRegisteredAtUtc, "MMM d, HH:mm")}</time></div>"));
+    string content = $"<style>{SecretManagerStyles()}</style><section class='page-head'><div><p>All registered applications and their configuration status</p></div></section><section class='toolbar'><input id='search' placeholder='⌕  Search applications...'><select id='statusFilter'><option value=''>All Status</option><option>Configured</option><option>Not Configured</option></select><button onclick='location.reload()'>↻</button><button class='primary' onclick='document.getElementById(\"registrationInfoDialog\").showModal()'>ⓘ Application Registration</button></section><section class='metrics'><a class='metric' href='/'><span>▦</span><b>{rows.Count}</b><small>Total Applications</small></a><a class='metric green' href='/?status=Configured'><span>✓</span><b>{configured}</b><small>Configured</small></a><a class='metric{(rows.Count - configured > 0 ? " amber" : "")}' href='/?status=Not%20Configured'><span>!</span><b>{rows.Count - configured}</b><small>Not Configured</small></a><a class='metric{(orphanedContracts > 0 ? " amber" : "")}' href='/orphaned'><span>⚠</span><b>{orphanedContracts}</b><small>Orphaned Contracts</small></a><a class='metric' href='/contracts'><span>≡</span><b>{requirements}</b><small>Total Requirements</small></a></section><section class='workspace'><div><section class='panel table-panel'><table id='apps'><thead><tr><th>Application</th><th>Version</th><th>Site / Instance</th><th>Configuration</th><th>Secrets</th><th>Required</th><th>Optional</th><th>Last Updated</th><th></th></tr></thead><tbody>{tableRows}</tbody></table></section><section class='lower'><div class='panel'><h3>◴ Recent Logs</h3>{activity}</div><div class='panel'><h3>⌘ Quick Links</h3><div class='quick'><a href='/runbooks'>▤ <span><b>Configuration Runbooks</b><small>Commissioning and recovery guidance</small></span></a><a href='/contracts'>◇ <span><b>Application Contracts</b><small>Human-readable contract views</small></span></a><a href='/orphaned'>⚠ <span><b>Orphaned Contracts</b><small>Retired contracts with no active registration</small></span></a></div></div></section></div>{detail}</section><dialog id='registrationInfoDialog'><h2>Applications Register Automatically</h2><p>Applications publish their configuration requirements to System Configuration when they start. You do not manually add applications here.</p><p><b>Configuration Server</b><br><code id='configurationServerUrl'></code></p><p><b>Registration Endpoint</b><br><code id='registrationEndpointUrl'></code></p><p>Applications should normally configure <code>Aegis:Configuration:Url</code> with the Configuration Server address above.</p><p class='muted'>Normal applications authenticate directly with Configuration using their durable Common.Registration identity. Control-plane services use their restricted bootstrap identity. Secret values are never displayed here.</p><button onclick='this.closest(\"dialog\").close()'>Close</button></dialog>";
+    return ConfigurationShell.Render(active == "overview" ? "Overview" : "Applications", content, active);
 }
 
 static string RenderApplicationRow((ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation) x, int index, bool selected)
