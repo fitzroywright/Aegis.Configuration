@@ -535,6 +535,18 @@ public sealed class LifecycleRegistrationAuthorityTests
             return Task.FromResult(record);
         }
 
+        public Task<LifecycleRegistrationRecord?> LoadActiveAsync(
+            string applicationId,
+            string instanceId,
+            CancellationToken ct)
+            => Task.FromResult(
+                _records.Values
+                    .Where(x => x.State != LifecycleRegistrationState.Purged)
+                    .Where(x => string.Equals(x.ApplicationId, applicationId, StringComparison.OrdinalIgnoreCase))
+                    .Where(x => string.Equals(x.InstanceId, instanceId, StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(x => x.CreatedAtUtc)
+                    .FirstOrDefault());
+
         public Task SaveAsync(LifecycleRegistrationRecord record, CancellationToken ct)
         {
             _records[record.RegistrationId] = record;
