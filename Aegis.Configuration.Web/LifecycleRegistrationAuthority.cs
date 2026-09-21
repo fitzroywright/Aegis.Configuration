@@ -66,6 +66,7 @@ internal sealed class LifecycleRegistrationAuthority
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly TimeSpan _claimLifetime;
+    private readonly TimeSpan _authenticationAuditInterval;
     private readonly ILifecycleRegistrationStore _store;
 
     public LifecycleRegistrationAuthority(
@@ -80,6 +81,13 @@ internal sealed class LifecycleRegistrationAuthority
             ?? 30;
 
         _claimLifetime = TimeSpan.FromMinutes(Math.Clamp(minutes, 5, 1440));
+
+        int authenticationAuditSeconds =
+            configuration.GetValue<int?>("AegisConfiguration:AuthenticationAuditIntervalSeconds")
+            ?? 300;
+        _authenticationAuditInterval =
+            TimeSpan.FromSeconds(Math.Clamp(authenticationAuditSeconds, 30, 3600));
+
         _store = store;
     }
 
@@ -344,6 +352,13 @@ internal sealed class LifecycleRegistrationAuthority
             }
 
             DateTimeOffset authenticatedAt = DateTimeOffset.UtcNow;
+
+            if (record.LastAuthenticatedAtUtc is { } lastAuthenticated &&
+                authenticatedAt - lastAuthenticated < _authenticationAuditInterval)
+            {
+                return record;
+            }
+
             LifecycleRegistrationRecord authenticated = record with
             {
                 LastAuthenticatedAtUtc = authenticatedAt,
