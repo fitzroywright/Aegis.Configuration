@@ -1,10 +1,19 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Threading.Channels;
 using Common.Diagnostics;
 using Common.Registration;
 
-internal sealed class RegistrationLifecycleTelemetryPublisher
+internal sealed class RegistrationLifecycleTelemetryPublisher : BackgroundService
 {
+    private readonly Channel<(LifecycleRegistrationRecord Record, LifecycleAuditEvent Audit)> _queue =
+        Channel.CreateBounded<(LifecycleRegistrationRecord, LifecycleAuditEvent)>(
+            new BoundedChannelOptions(1024)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.DropOldest
+            });
     private const string PublisherApplicationId = "Aegis.Configuration";
 
     private readonly IHttpClientFactory _httpClientFactory;
@@ -43,7 +52,32 @@ internal sealed class RegistrationLifecycleTelemetryPublisher
             UriKind.Absolute);
     }
 
-    public async Task PublishAsync(
+    public Task PublishAsync(
+        LifecycleRegistrationRecord record,
+        LifecycleAuditEvent audit,
+        CancellationToken cancellationToken)
+    {
+        if (!_queue.Writer.TryWrite((record, audit)))
+        {
+            _logger.LogWarning(
+                "Registration lifecycle telemetry queue rejected an event. RegistrationId={RegistrationId}, Stage={Stage}.",
+                record.RegistrationId,
+                audit.Action);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        await foreach ((LifecycleRegistrationRecord Record, LifecycleAuditEvent Audit) item in
+            _queue.Reader.ReadAllAsync(stoppingToken))
+        {
+            await PublishCoreAsync(item.Record, item.Audit, stoppingToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task PublishCoreAsync(
         LifecycleRegistrationRecord record,
         LifecycleAuditEvent audit,
         CancellationToken cancellationToken)
