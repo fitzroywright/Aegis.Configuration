@@ -39,6 +39,7 @@ builder.Services.AddSuiteSecurity();
 builder.Services.AddHttpClient("operations-registration", client => client.Timeout = TimeSpan.FromSeconds(10));
 builder.Services.AddHttpClient("registration-lifecycle-telemetry", client => client.Timeout = TimeSpan.FromSeconds(5));
 builder.Services.AddSingleton<RegistrationLifecycleTelemetryPublisher>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<RegistrationLifecycleTelemetryPublisher>());
 builder.Services.AddSingleton<OperationsRegistrationAuthority>();
 builder.Services.AddSingleton<ILifecycleRegistrationStore, PostgresLifecycleRegistrationStore>();
 builder.Services.AddSingleton<LifecycleRegistrationAuthority>();
