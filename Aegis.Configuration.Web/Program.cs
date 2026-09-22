@@ -228,7 +228,35 @@ app.MapGet("/secrets", () => Results.Redirect("/applications"));
 
 app.MapGet("/providers", () => Results.Redirect("/applications"));
 
-app.MapGet("/logs", () => Results.Redirect("https://operations.ffpja.org/logs?mode=appLogs&applicationId=Aegis.Configuration"));
+app.MapGet("/logs", (HttpContext context) =>
+{
+    if (!Has(context, "Configuration.View")) return Forbidden();
+
+    string content = """
+<style>
+.configuration-log-list{display:grid;gap:0}.configuration-log-row{display:grid;grid-template-columns:190px minmax(170px,230px) 120px minmax(0,1fr);gap:12px;align-items:start;padding:9px 8px;border-bottom:1px solid var(--line-soft);font:12px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace}.configuration-log-row time{color:var(--arctic-snow)}.configuration-log-row b{color:var(--arctic-ice)}.configuration-log-row .good{color:var(--radioactive)}.configuration-log-row .warn{color:var(--title-gold)}.configuration-log-row .bad{color:var(--sunset-red)}@media(max-width:900px){.configuration-log-row{grid-template-columns:1fr}}
+</style>
+<section class='page-head'><div><p>Configuration-scoped lifecycle and contract activity. This view remains inside Configuration.</p></div></section>
+<section class='panel'><div id='configurationLogRows' class='configuration-log-list'><div class='empty'>Loading Configuration logs…</div></div></section>
+<script>
+const logRows=document.getElementById('configurationLogRows');
+const escLog=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+const fmtLog=v=>{const d=new Date(v);if(Number.isNaN(d.getTime()))return '—';const mon=d.toLocaleString('en-US',{month:'short'});let h=d.getHours(),tt=h>=12?'PM':'AM';h=h%12||12;return mon+' '+String(d.getDate()).padStart(2,'0')+' '+d.getFullYear()+' '+String(h).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0')+' '+tt};
+const toneLog=v=>{const s=String(v||'').toLowerCase();return /reject|revoke|fail|conflict|unhealthy|error/.test(s)?'bad':/pending|recover|attention|warning|degraded/.test(s)?'warn':'good'};
+async function loadConfigurationLogs(){
+  try{
+    const r=await fetch('/api/registration/flow?limit=250',{cache:'no-store'});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const x=await r.json(),rows=[...(x.events||[])].sort((a,b)=>new Date(b.occurredAtUtc||b.lastEventAtUtc||b.observedAtUtc)-new Date(a.occurredAtUtc||a.lastEventAtUtc||a.observedAtUtc));
+    logRows.innerHTML=rows.length?rows.map(e=>'<div class="configuration-log-row"><time>'+fmtLog(e.occurredAtUtc||e.lastEventAtUtc||e.observedAtUtc)+'</time><b>'+escLog(e.applicationId||'Configuration')+'</b><span class="'+toneLog(e.outcome||e.state)+'">'+escLog(e.outcome||e.state||'Observed')+'</span><span>'+escLog([e.stage,e.code,e.reason,e.detail].filter(Boolean).join(' · ')||'Configuration lifecycle event')+'</span></div>').join(''):'<div class="empty">No Configuration lifecycle activity has been observed.</div>';
+    const scan=document.getElementById('lastScan');if(scan)scan.textContent='Last Scan: '+fmtLog(new Date());
+  }catch(e){logRows.innerHTML='<div class="empty">Configuration logs unavailable · '+escLog(e.message)+'</div>';}
+}
+loadConfigurationLogs();setInterval(loadConfigurationLogs,5000);
+</script>
+""";
+    return Html(ConfigurationShell.Render("Configuration Logs", content, "logs"));
+});
 
 app.MapGet("/applications/{applicationId}", async (string applicationId, IConfigurationContractStore store, ConfigurationEvaluator evaluator, CancellationToken ct) =>
 {
