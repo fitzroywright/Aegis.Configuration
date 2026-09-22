@@ -87,7 +87,7 @@ internal static class LifecycleFlowSnapshotBuilder
         {
             LifecycleRegistrationState.Pending => "Approval",
             LifecycleRegistrationState.Approved => "Claim",
-            LifecycleRegistrationState.Registered => "Running",
+            LifecycleRegistrationState.Registered => "Registered",
             LifecycleRegistrationState.RecoveryPending => "Recovery Approval",
             LifecycleRegistrationState.RecoveryApproved => "Recovery Claim",
             LifecycleRegistrationState.IdentityConflict => "Identity Conflict",
@@ -137,7 +137,7 @@ internal static class LifecycleFlowSnapshotBuilder
         {
             "Approval" => ["RegistrationRequested"],
             "Claim" => ["Approved"],
-            "Running" => ["Authenticated", "ConfigurationContractPublished", "CredentialClaimed"],
+            "Registered" => ["ConfigurationContractPublished", "Authenticated", "CredentialClaimed"],
             "Recovery Approval" => ["RecoveryRequested"],
             "Recovery Claim" => ["Approved"],
             "Identity Conflict" => ["IdentityConflict", "IdentityConflictAuthentication"],
