@@ -87,6 +87,7 @@ public sealed class CommissioningReportRenderer
             report.AppendLine();
             report.AppendLine("## Health and Diagnostics");
             report.AppendLine();
+            report.AppendLine($"- Base URL: {diagnostics.BaseUrl ?? "—"}");
             report.AppendLine($"- Health path: {diagnostics.HealthPath}");
             report.AppendLine($"- Remote diagnostics: {(diagnostics.SupportsRemoteDiagnostics ? "Supported" : "Not supported")}");
             report.AppendLine($"- Operational telemetry: {(diagnostics.SupportsOperationalTelemetry ? "Supported" : "Not supported")}");
