@@ -621,9 +621,13 @@ app.MapGet("/registration-lifecycle", async (
 
             string stageMarkup = string.Join("", stages.Select(stage =>
             {
+                bool registeredCompleted =
+                    stage.Equals("Registered", StringComparison.OrdinalIgnoreCase) &&
+                    journey.State.Equals("Registered", StringComparison.OrdinalIgnoreCase);
+
                 string css = failedStages.Contains(stage)
                     ? "failed"
-                    : completedStages.Contains(stage)
+                    : completedStages.Contains(stage) || registeredCompleted
                         ? "done"
                         : stage.Equals(journey.CurrentStage, StringComparison.OrdinalIgnoreCase) ||
                           (journey.CurrentStage == "Recovery Approval" && stage == "Approval") ||
