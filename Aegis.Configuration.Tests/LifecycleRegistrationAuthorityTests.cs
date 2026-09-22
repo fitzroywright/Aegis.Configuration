@@ -189,7 +189,7 @@ public sealed class LifecycleRegistrationAuthorityTests
             await RegisterAsync(authority, "install-1");
 
         LifecycleRegistrationRecord? authenticated = await authority.AuthenticateAsync(
-            "Aegis.Hello", "Production", "install-1", credential, "corr-a", CancellationToken.None);
+            "Aegis.Hello", "Production", "install-1", credential, "runtime-a", "corr-a", CancellationToken.None);
         Assert.Equal(LifecycleRegistrationState.Registered, authenticated!.State);
 
         LifecycleRegistrationRecord? revoked = await authority.RevokeAsync(
@@ -205,7 +205,7 @@ public sealed class LifecycleRegistrationAuthorityTests
         Assert.Null(revoked.CredentialHash);
 
         LifecycleRegistrationRecord? afterRevoke = await authority.AuthenticateAsync(
-            "Aegis.Hello", "Production", "install-1", credential, "corr-b", CancellationToken.None);
+            "Aegis.Hello", "Production", "install-1", credential, "runtime-a", "corr-b", CancellationToken.None);
         Assert.Equal(LifecycleRegistrationState.Revoked, afterRevoke!.State);
 
         LifecycleRegistrationRecord? purged = await authority.PurgeAsync(
@@ -244,6 +244,7 @@ public sealed class LifecycleRegistrationAuthorityTests
             "Production",
             "install-clone",
             credential,
+            "runtime-clone",
             "corr-conflict",
             CancellationToken.None);
 
@@ -332,6 +333,45 @@ public sealed class LifecycleRegistrationAuthorityTests
         Assert.Equal(
             LifecycleRegistrationState.Pending,
             (await store.LoadAllAsync(CancellationToken.None)).Single().State);
+    }
+
+    [Fact]
+    public async Task ConcurrentRuntimeSession_WithSameDurableIdentity_BecomesConflict()
+    {
+        var store = new InMemoryLifecycleRegistrationStore();
+        LifecycleRegistrationAuthority authority = CreateAuthority(store);
+
+        (LifecycleRegistrationRecord registered, string credential) =
+            await RegisterAsync(authority, "install-runtime");
+
+        LifecycleRegistrationRecord? first = await authority.AuthenticateAsync(
+            "Aegis.Hello",
+            "Production",
+            "install-runtime",
+            credential,
+            "runtime-a",
+            "corr-runtime-a",
+            CancellationToken.None);
+
+        Assert.NotNull(first);
+        Assert.Equal(LifecycleRegistrationState.Registered, first!.State);
+        Assert.Equal("runtime-a", first.ActiveRuntimeSessionId);
+        Assert.True(first.RuntimeLeaseExpiresAtUtc > DateTimeOffset.UtcNow);
+
+        LifecycleRegistrationRecord? conflict = await authority.AuthenticateAsync(
+            "Aegis.Hello",
+            "Production",
+            "install-runtime",
+            credential,
+            "runtime-b",
+            "corr-runtime-b",
+            CancellationToken.None);
+
+        Assert.NotNull(conflict);
+        Assert.Equal(LifecycleRegistrationState.IdentityConflict, conflict!.State);
+        Assert.Equal("runtime-a", conflict.ActiveRuntimeSessionId);
+        Assert.Equal("runtime-b", conflict.ConflictRuntimeSessionId);
+        Assert.Contains(conflict.Audit, x => x.Action == "ConcurrentRuntimeIdentityConflict");
     }
 
     [Fact]
