@@ -651,7 +651,7 @@ app.MapGet("/registration-lifecycle", async (
                 "Revoked" => "Revoked",
                 "Rejected" => "Rejected",
                 "IdentityConflict" => "Conflict",
-                "Registered" => "Registered",
+                "Registered" => "Complete",
                 _ => journey.CurrentStage
             };
 
