@@ -139,9 +139,12 @@ internal static class LifecycleRegistrationEndpoints
             string applicationId = context.Request.Headers["X-Aegis-Application-Id"].ToString().Trim();
             string instanceId = context.Request.Headers["X-Aegis-Instance-Id"].ToString().Trim();
             string installationId = context.Request.Headers["X-Aegis-Installation-Id"].ToString().Trim();
+            string runtimeSessionId = context.Request.Headers["X-Aegis-Runtime-Session-Id"].ToString().Trim();
             string credential = Bearer(context.Request.Headers.Authorization.ToString());
 
-            if (!Valid(applicationId, instanceId, installationId) || string.IsNullOrWhiteSpace(credential))
+            if (!Valid(applicationId, instanceId, installationId) ||
+                string.IsNullOrWhiteSpace(credential) ||
+                string.IsNullOrWhiteSpace(runtimeSessionId))
                 return Results.Unauthorized();
 
             LifecycleRegistrationRecord? record = await authority.AuthenticateAsync(
@@ -149,6 +152,7 @@ internal static class LifecycleRegistrationEndpoints
                 instanceId,
                 installationId,
                 credential,
+                runtimeSessionId,
                 Correlation(context),
                 ct);
 
@@ -164,7 +168,9 @@ internal static class LifecycleRegistrationEndpoints
             {
                 record.RegistrationId,
                 state = "Registered",
-                record.LastAuthenticatedAtUtc
+                record.LastAuthenticatedAtUtc,
+                record.ActiveRuntimeSessionId,
+                record.RuntimeLeaseExpiresAtUtc
             });
         }).AllowAnonymous().RequireRateLimiting("registration-lifecycle-rate-limit");
 
@@ -238,6 +244,9 @@ internal static class LifecycleRegistrationEndpoints
                 x.ApprovedAtUtc,
                 x.RegisteredAtUtc,
                 x.LastAuthenticatedAtUtc,
+                x.ActiveRuntimeSessionId,
+                x.RuntimeLeaseExpiresAtUtc,
+                x.ConflictRuntimeSessionId,
                 x.RevokedAtUtc,
                 x.Metadata,
                 x.Audit
