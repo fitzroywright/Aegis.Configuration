@@ -42,8 +42,9 @@ internal static class ConfigurationShell
     <a class="blue" href="https://operations.ffpja.org">Operations</a>
     <a class="salmon" href="https://diagnostics.ffpja.org">Diagnostics</a>
     <a class="gold" href="/">Configuration</a>
-    <a class="logout" href="/auth/logout">Logout</a>
+    <a class="gray" href="https://operations.ffpja.org/registration">Registration</a>
   </div>
+  <a class="lcars-logout" href="/auth/logout">Logout</a>
 </header>
 
 <section class="workspace-shell">
