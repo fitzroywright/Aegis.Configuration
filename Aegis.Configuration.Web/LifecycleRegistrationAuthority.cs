@@ -46,6 +46,9 @@ internal sealed record LifecycleRegistrationRecord(
     List<LifecycleAuditEvent> Audit)
 {
     public string? ConflictInstallationId { get; init; }
+    public string? ActiveRuntimeSessionId { get; init; }
+    public DateTimeOffset? RuntimeLeaseExpiresAtUtc { get; init; }
+    public string? ConflictRuntimeSessionId { get; init; }
 }
 
 internal sealed record LifecycleIntroductionResult(
@@ -67,6 +70,7 @@ internal sealed class LifecycleRegistrationAuthority
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly TimeSpan _claimLifetime;
     private readonly TimeSpan _authenticationAuditInterval;
+    private readonly TimeSpan _runtimeLeaseLifetime;
     private readonly ILifecycleRegistrationStore _store;
 
     public LifecycleRegistrationAuthority(
@@ -87,6 +91,12 @@ internal sealed class LifecycleRegistrationAuthority
             ?? 300;
         _authenticationAuditInterval =
             TimeSpan.FromSeconds(Math.Clamp(authenticationAuditSeconds, 30, 3600));
+
+        int runtimeLeaseSeconds =
+            configuration.GetValue<int?>("AegisConfiguration:RuntimeLeaseSeconds")
+            ?? 90;
+        _runtimeLeaseLifetime =
+            TimeSpan.FromSeconds(Math.Clamp(runtimeLeaseSeconds, 30, 600));
 
         _store = store;
     }
@@ -298,6 +308,7 @@ internal sealed class LifecycleRegistrationAuthority
         string instanceId,
         string installationId,
         string credential,
+        string runtimeSessionId,
         string? correlationId,
         CancellationToken ct)
     {
@@ -342,40 +353,80 @@ internal sealed class LifecycleRegistrationAuthority
             if (record.State == LifecycleRegistrationState.Revoked)
                 return record;
 
-            if (record.State != LifecycleRegistrationState.Registered)
-                return null;
-
             if (string.IsNullOrWhiteSpace(record.CredentialHash) ||
                 !VerifyCredentialHash(record.CredentialHash, credential))
             {
                 return null;
             }
 
-            DateTimeOffset authenticatedAt = DateTimeOffset.UtcNow;
+            if (string.IsNullOrWhiteSpace(runtimeSessionId))
+                return null;
 
-            if (record.LastAuthenticatedAtUtc is { } lastAuthenticated &&
-                authenticatedAt - lastAuthenticated < _authenticationAuditInterval)
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            bool leaseFresh =
+                record.RuntimeLeaseExpiresAtUtc is { } leaseExpires &&
+                leaseExpires > now;
+            bool sameSession =
+                !string.IsNullOrWhiteSpace(record.ActiveRuntimeSessionId) &&
+                string.Equals(record.ActiveRuntimeSessionId, runtimeSessionId, StringComparison.Ordinal);
+
+            if (leaseFresh && !sameSession)
             {
-                return record;
+                LifecycleRegistrationRecord conflict = record with
+                {
+                    State = LifecycleRegistrationState.IdentityConflict,
+                    ConflictRuntimeSessionId = runtimeSessionId,
+                    UpdatedAtUtc = now,
+                    Audit =
+                    [
+                        .. record.Audit,
+                        Audit(
+                            "ConcurrentRuntimeIdentityConflict",
+                            "application-authentication",
+                            null,
+                            null,
+                            "The durable installation identity is already held by another active runtime session.",
+                            correlationId,
+                            record.State,
+                            LifecycleRegistrationState.IdentityConflict)
+                    ]
+                };
+
+                await _store.SaveAsync(conflict, ct);
+                return conflict;
             }
+
+            bool reclaimingExpiredLease = !sameSession && !leaseFresh;
+            LifecycleRegistrationState resultingState =
+                record.State == LifecycleRegistrationState.IdentityConflict &&
+                !string.IsNullOrWhiteSpace(record.ConflictInstallationId)
+                    ? LifecycleRegistrationState.IdentityConflict
+                    : LifecycleRegistrationState.Registered;
 
             LifecycleRegistrationRecord authenticated = record with
             {
-                LastAuthenticatedAtUtc = authenticatedAt,
-                UpdatedAtUtc = authenticatedAt,
+                State = resultingState,
+                ActiveRuntimeSessionId = runtimeSessionId,
+                RuntimeLeaseExpiresAtUtc = now + _runtimeLeaseLifetime,
+                ConflictRuntimeSessionId = reclaimingExpiredLease ? null : record.ConflictRuntimeSessionId,
+                LastAuthenticatedAtUtc = now,
+                UpdatedAtUtc = now,
                 Audit =
-                [
-                    .. record.Audit,
-                    Audit(
-                        "Authenticated",
-                        "application-authentication",
-                        null,
-                        null,
-                        null,
-                        correlationId,
-                        record.State,
-                        LifecycleRegistrationState.Registered)
-                ]
+                    reclaimingExpiredLease || record.LastAuthenticatedAtUtc is null ||
+                    now - record.LastAuthenticatedAtUtc >= _authenticationAuditInterval
+                    ? [
+                        .. record.Audit,
+                        Audit(
+                            reclaimingExpiredLease ? "RuntimeLeaseReclaimed" : "Authenticated",
+                            "application-authentication",
+                            null,
+                            null,
+                            reclaimingExpiredLease ? "Expired runtime lease reclaimed by a new process session." : null,
+                            correlationId,
+                            record.State,
+                            resultingState)
+                    ]
+                    : record.Audit
             };
 
             await _store.SaveAsync(authenticated, ct);
@@ -691,6 +742,7 @@ internal sealed class LifecycleRegistrationAuthority
             {
                 State = restored,
                 ConflictInstallationId = null,
+                ConflictRuntimeSessionId = null,
                 UpdatedAtUtc = DateTimeOffset.UtcNow,
                 Audit =
                 [
@@ -737,14 +789,45 @@ internal sealed class LifecycleRegistrationAuthority
                 return null;
 
             if (record.State != LifecycleRegistrationState.IdentityConflict ||
-                string.IsNullOrWhiteSpace(record.ConflictInstallationId))
+                (string.IsNullOrWhiteSpace(record.ConflictInstallationId) &&
+                 string.IsNullOrWhiteSpace(record.ConflictRuntimeSessionId)))
             {
                 throw new InvalidOperationException(
                     "Registration is not in a replaceable identity conflict.");
             }
 
             DateTimeOffset now = DateTimeOffset.UtcNow;
-            string incoming = record.ConflictInstallationId;
+
+            if (string.IsNullOrWhiteSpace(record.ConflictInstallationId) &&
+                !string.IsNullOrWhiteSpace(record.ConflictRuntimeSessionId))
+            {
+                LifecycleRegistrationRecord replacedRuntime = record with
+                {
+                    State = LifecycleRegistrationState.Registered,
+                    ActiveRuntimeSessionId = record.ConflictRuntimeSessionId,
+                    RuntimeLeaseExpiresAtUtc = now + _runtimeLeaseLifetime,
+                    ConflictRuntimeSessionId = null,
+                    UpdatedAtUtc = now,
+                    Audit =
+                    [
+                        .. record.Audit,
+                        Audit(
+                            "RuntimeIdentityConflictResolvedReplaceWithIncoming",
+                            actor,
+                            sourceIp,
+                            userAgent,
+                            reason,
+                            correlationId,
+                            record.State,
+                            LifecycleRegistrationState.Registered)
+                    ]
+                };
+
+                await _store.SaveAsync(replacedRuntime, ct);
+                return replacedRuntime;
+            }
+
+            string incoming = record.ConflictInstallationId!;
 
             LifecycleRegistrationRecord retired = record with
             {
