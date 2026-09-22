@@ -13,6 +13,26 @@ public sealed class ContractValidator
         if (string.IsNullOrWhiteSpace(contract.DisplayName)) errors.Add("DisplayName is required.");
         if (string.IsNullOrWhiteSpace(contract.Version)) errors.Add("Version is required.");
         if (contract.Requirements.Count == 0) errors.Add("At least one configuration requirement is required.");
+        if (contract.Diagnostics is not null)
+        {
+            string? baseUrl = contract.Diagnostics.BaseUrl?.Trim();
+            if (string.IsNullOrWhiteSpace(baseUrl))
+            {
+                errors.Add("Diagnostics.BaseUrl is required when diagnostics capability is published.");
+            }
+            else if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out Uri? diagnosticsUri) ||
+                     (diagnosticsUri.Scheme != Uri.UriSchemeHttp && diagnosticsUri.Scheme != Uri.UriSchemeHttps))
+            {
+                errors.Add("Diagnostics.BaseUrl must be an absolute HTTP or HTTPS URL.");
+            }
+
+            if (string.IsNullOrWhiteSpace(contract.Diagnostics.HealthPath) ||
+                !contract.Diagnostics.HealthPath.StartsWith("/", StringComparison.Ordinal))
+            {
+                errors.Add("Diagnostics.HealthPath must be a root-relative path.");
+            }
+        }
+
         if (contract.Presentation is not null)
         {
             string? icon = contract.Presentation.IconUrl?.Trim();
