@@ -603,8 +603,8 @@ app.MapGet("/registration-lifecycle", async (
                 .OrderBy(x => x.AtUtc)
                 .ToArray();
 
-            string[] normalStages = ["Request", "Approval", "Claim", "Authenticate", "Publish", "Running"];
-            string[] recoveryStages = ["Recovery", "Approval", "Claim", "Authenticate", "Publish", "Running"];
+            string[] normalStages = ["Request", "Approval", "Claim", "Authenticate", "Publish", "Registered"];
+            string[] recoveryStages = ["Recovery", "Approval", "Claim", "Authenticate", "Publish", "Registered"];
             string[] stages = journey.State.StartsWith("Recovery", StringComparison.OrdinalIgnoreCase)
                 ? recoveryStages
                 : normalStages;
@@ -647,10 +647,11 @@ app.MapGet("/registration-lifecycle", async (
                 "Revoked" => "Revoked",
                 "Rejected" => "Rejected",
                 "IdentityConflict" => "Conflict",
-                _ => journey.Health
+                "Registered" => "Registered",
+                _ => journey.CurrentStage
             };
 
-            return $"<article class='lifecycle-journey health-{E(journey.Health.ToLowerInvariant())}'><header><div>{RegistrationIcon(records.First(x => x.RegistrationId == journey.RegistrationId))}<span><b>{E(journey.ApplicationId)}</b><small>{E(journey.InstanceId)} · {E(journey.State)}</small><small class='registration-id'>Registration ID: <code>{E(journey.RegistrationId)}</code> <button type='button' class='copy-registration-id' data-copy-registration-id='{E(journey.RegistrationId)}' title='Copy Registration ID'>Copy</button></small><small class='registration-id'>Installation ID: <code>{E(journey.InstallationId)}</code> <button type='button' class='copy-installation-id' data-copy-installation-id='{E(journey.InstallationId)}' title='Copy Installation ID'>Copy</button></small></span></div><strong>{E(operatorStatus)}</strong></header><div class='lifecycle-track'>{stageMarkup}{terminal}</div><footer><span>Current: <b>{E(journey.CurrentStage)}</b></span><span>Last action: <b>{E(journey.LastAction ?? "—")}</b></span><span>Age: <b>{journey.StageAgeSeconds}s</b></span></footer></article>";
+            return $"<article class='lifecycle-journey health-{E(journey.Health.ToLowerInvariant())}'><header><div>{RegistrationIcon(records.First(x => x.RegistrationId == journey.RegistrationId))}<span><b>{E(journey.ApplicationId)}</b><small>{E(journey.InstanceId)} · {E(journey.State)}</small><small class='registration-id'>Registration ID: <code>{E(journey.RegistrationId)}</code> <button type='button' class='copy-registration-id' data-copy-registration-id='{E(journey.RegistrationId)}' title='Copy Registration ID'>Copy</button></small><small class='registration-id'>Installation ID: <code>{E(journey.InstallationId)}</code> <button type='button' class='copy-installation-id' data-copy-installation-id='{E(journey.InstallationId)}' title='Copy Installation ID'>Copy</button></small></span></div><strong>{E(operatorStatus)}</strong></header><div class='lifecycle-track'>{stageMarkup}{terminal}</div><footer><span>Current: <b>{E(journey.CurrentStage)}</b></span><span>Last action: <b>{E(journey.LastAction ?? "—")}</b></span><span>Time at stage: <b>{FormatLifecycleAge(journey.StageAgeSeconds)}</b></span></footer></article>";
         }));
 
     string lifecycleStyles =
@@ -750,6 +751,22 @@ static string E(string? value) => HtmlEncoder.Default.Encode(value ?? "—");
 static string Registered(DateTimeOffset? value, string format) => value.HasValue
     ? $"<time class='local-datetime' datetime='{E(value.Value.ToString("O"))}'>{E(value.Value.ToString(format))}</time>"
     : "Never";
+
+static string FormatLifecycleAge(long seconds)
+{
+    long total = Math.Max(0, seconds);
+    if (total < 60) return $"{total}s";
+
+    long minutes = total / 60;
+    if (minutes < 60) return $"{minutes}m {total % 60:00}s";
+
+    long hours = minutes / 60;
+    if (hours < 24) return $"{hours}h {minutes % 60:00}m";
+
+    long days = hours / 24;
+    long remainingHours = hours % 24;
+    return remainingHours == 0 ? $"{days}d" : $"{days}d {remainingHours}h";
+}
 
 static string SiteInstance(ApplicationConfigurationContract contract)
 {
