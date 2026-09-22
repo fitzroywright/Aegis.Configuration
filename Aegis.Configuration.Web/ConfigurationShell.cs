@@ -40,9 +40,9 @@ internal static class ConfigurationShell
   </div></div>
   <div class="top-buttons">
     <a class="blue" href="https://operations.ffpja.org">Operations</a>
-    <a class="salmon" href="https://diagnostics.ffpja.org">Diagnostics</a>
-    <a class="gold" href="/">Configuration</a>
     <a class="gray" href="https://operations.ffpja.org/registration">Registration</a>
+    <a class="gold" href="/">Configuration</a>
+    <a class="salmon" href="https://diagnostics.ffpja.org">Diagnostics</a>
   </div>
   <a class="lcars-logout" href="/auth/logout">Logout</a>
 </header>
