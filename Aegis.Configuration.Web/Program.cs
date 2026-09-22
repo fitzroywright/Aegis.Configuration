@@ -210,7 +210,7 @@ app.MapGet("/", async (IConfigurationContractStore store, ConfigurationEvaluator
     var rows = new List<(ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation)>();
     foreach (var c in contracts) rows.Add((c, await evaluator.EvaluateAsync(c, ct)));
     int orphanedContracts = await contractStore.CountRetiredAsync("orphaned", ct);
-    return Html(RenderDashboard(rows, null, orphanedContracts, "overview"));
+    return Html(RenderOverview(rows, orphanedContracts));
 });
 
 app.MapGet("/applications", async (IConfigurationContractStore store, ConfigurationEvaluator evaluator, CancellationToken ct) =>
@@ -761,18 +761,93 @@ static string SiteInstance(ApplicationConfigurationContract contract)
     return values.Length == 0 ? "—" : string.Join(" · ", values.Select(E));
 }
 
+static string RenderOverview(List<(ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation)> rows, int orphanedContracts)
+{
+    int configured = rows.Count(x => x.Evaluation.IsComplete);
+    int incomplete = rows.Count - configured;
+    int requirements = rows.Sum(x => x.Evaluation.Requirements.Count);
+    var secretStatuses = rows
+        .Select(x => (x.Contract, Status: SecretManagerEvaluator.Evaluate(x.Contract, x.Evaluation)))
+        .ToArray();
+    int secretApps = secretStatuses.Count(x => x.Status.HasSecrets);
+    int secretAttention = secretStatuses.Count(x => x.Status.HasSecrets && !x.Status.IsHealthy);
+
+    var attentionRows = rows
+        .Where(x => !x.Evaluation.IsComplete || SecretManagerEvaluator.Evaluate(x.Contract, x.Evaluation) is { HasSecrets: true, IsHealthy: false })
+        .OrderBy(x => x.Contract.DisplayName)
+        .ToArray();
+
+    string attention = attentionRows.Length == 0
+        ? "<div class='empty'><b class='status good'>Clear</b> No configuration conditions currently require operator attention.</div>"
+        : string.Join("", attentionRows.Select(x =>
+        {
+            SecretManagerStatus secrets = SecretManagerEvaluator.Evaluate(x.Contract, x.Evaluation);
+            string reason = !x.Evaluation.IsComplete
+                ? $"{x.Evaluation.Requirements.Count(r => r.Required && r.State is not ConfigurationState.Configured and not ConfigurationState.Default)} required requirement(s) unresolved"
+                : secrets.IssueLabel;
+            string appId = Uri.EscapeDataString(x.Contract.ApplicationId);
+            return $"<a class='overview-attention' href='/applications/{appId}' data-application-id='{E(x.Contract.ApplicationId)}' data-display-name='{E(x.Contract.DisplayName)}'><b>{E(x.Contract.DisplayName)}</b><span class='status warn'>Attention</span><small>{E(reason)}</small></a>";
+        }));
+
+    string recent = rows.Count == 0
+        ? "<div class='empty'>No recent configuration events.</div>"
+        : string.Join("", rows
+            .OrderByDescending(x => x.Contract.LastRegisteredAtUtc)
+            .Take(6)
+            .Select(x => $"<div class='recent-event-row' data-application-id='{E(x.Contract.ApplicationId)}' data-display-name='{E(x.Contract.DisplayName)}'><b>{E(x.Contract.DisplayName)}</b><span>Contract published</span><time>{Registered(x.Contract.LastRegisteredAtUtc, "MMM dd yyyy hh:mm tt")}</time></div>"));
+
+    var providers = secretStatuses
+        .Where(x => x.Status.HasSecrets)
+        .GroupBy(x => string.IsNullOrWhiteSpace(x.Status.ProviderName) ? "Unspecified provider" : x.Status.ProviderName, StringComparer.OrdinalIgnoreCase)
+        .OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+    string providerSummary = providers.Length == 0
+        ? "<div class='empty'>No applications currently declare secret-provider requirements.</div>"
+        : string.Join("", providers.Select(group =>
+        {
+            int apps = group.Count();
+            int issues = group.Count(x => !x.Status.IsHealthy);
+            string tone = issues > 0 ? "warn" : "good";
+            return $"<div class='provider-summary'><b>{E(group.Key)}</b><span class='status {tone}'>{(issues > 0 ? $"{issues} attention" : "Healthy")}</span><small>{apps} application(s)</small></div>";
+        }));
+
+    string css = """
+.overview-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(320px,.75fr);gap:14px;margin-top:14px}
+.overview-grid .panel{margin:0}.overview-attention{display:grid;grid-template-columns:minmax(180px,1fr) 120px minmax(220px,1.4fr);gap:12px;align-items:center;padding:10px;border-bottom:1px solid var(--line-soft);text-decoration:none;color:inherit}.overview-attention:hover{background:#0c2638}.overview-attention small{color:var(--muted);font-size:13px}.provider-summary{display:grid;grid-template-columns:minmax(160px,1fr) 120px 100px;gap:12px;align-items:center;padding:10px;border-bottom:1px solid var(--line-soft)}.provider-summary small{color:var(--muted)}.overview-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}.overview-actions a{border:1px solid var(--line);border-radius:6px;padding:9px 12px;background:#071b29}.overview-actions a:hover{border-color:var(--arctic-ice)}@media(max-width:1100px){.overview-grid{grid-template-columns:1fr}}
+""";
+
+    string content = $"""
+<style>{SecretManagerStyles()}{css}</style>
+<section class='page-head'><div><p>Configuration control-room summary: readiness, exceptions, providers and recent contract activity.</p></div></section>
+<section class='metrics'>
+  <a class='metric' href='/applications'><span>▦</span><b>{rows.Count}</b><small>Applications</small></a>
+  <a class='metric green' href='/applications'><span>✓</span><b>{configured}</b><small>Configured</small></a>
+  <a class='metric{(incomplete > 0 ? " amber" : "")}' href='/applications'><span>!</span><b>{incomplete}</b><small>Need Attention</small></a>
+  <a class='metric{(orphanedContracts > 0 ? " amber" : "")}' href='/orphaned'><span>⚠</span><b>{orphanedContracts}</b><small>Orphaned Contracts</small></a>
+  <a class='metric{(secretAttention > 0 ? " amber" : "")}' href='/applications'><span>◆</span><b>{secretAttention}</b><small>Secret / Provider Issues</small></a>
+</section>
+<section class='overview-grid'>
+  <section class='panel'><h2>Configuration Attention</h2><div class='muted'>Only unresolved configuration or secret-provider conditions appear here.</div>{attention}</section>
+  <section class='panel'><h2>Configuration Landscape</h2><div class='facts'><div><small>TOTAL REQUIREMENTS</small><b>{requirements}</b></div><div><small>SECRET-USING APPS</small><b>{secretApps}</b></div><div><small>PROVIDERS</small><b>{providers.Length}</b></div><div><small>ORPHANED CONTRACTS</small><b>{orphanedContracts}</b></div></div><div class='overview-actions'><a href='/applications'>Open Applications</a><a href='/contracts'>Contracts</a><a href='/orphaned'>Orphaned Contracts</a></div></section>
+  <section class='panel recent-events'><h2>Recent Configuration Activity</h2><div class='recent-event-head'><span>Application</span><span>Event</span><span>Time</span></div><div id='configurationRecentEvents'>{recent}</div></section>
+  <section class='panel'><h2>Secret Providers</h2><div class='muted'>Provider status is application-published metadata; Configuration never retrieves secret values.</div>{providerSummary}</section>
+</section>
+""";
+    return ConfigurationShell.Render("Overview", content, "overview");
+}
+
 static string RenderDashboard(List<(ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation)> rows, int? selectedIndex, int orphanedContracts = 0, string active = "overview")
 {
     int configured = rows.Count(x => x.Evaluation.IsComplete);
     int requirements = rows.Sum(x => x.Evaluation.Requirements.Count);
     string tableRows = rows.Count == 0 ? "<tr><td colspan='9' class='empty'>No applications registered.</td></tr>" : string.Join("", rows.Select((x, i) => RenderApplicationRow(x, i, selectedIndex == i)));
-    int selected = selectedIndex ?? (active == "applications" && rows.Count > 0 ? 0 : -1);
+    int selected = selectedIndex ?? (rows.Count > 0 ? 0 : -1);
     string detail = selected < 0 ? string.Empty : RenderDetails(rows[selected]);
     string activity = rows.Count == 0 ? "<div class='empty'>No recent configuration events.</div>" : string.Join("", rows.OrderByDescending(x => x.Contract.LastRegisteredAtUtc).Take(4).Select(x => $"<div class='recent-event-row'><b>{E(x.Contract.DisplayName)}</b><span>Registered</span><time>{Registered(x.Contract.LastRegisteredAtUtc, "MMM dd yyyy hh:mm tt")}</time></div>"));
-    string overviewCss = active == "overview" ? ".workspace{grid-template-columns:1fr}.table-panel{max-height:calc(100vh - 390px)}" : string.Empty;
-    string intro = active == "overview" ? "Installation configuration landscape across all registered applications" : "All registered applications and their configuration status";
+    string overviewCss = string.Empty;
+    string intro = "All registered applications and their configuration status";
     string content = $"<style>{SecretManagerStyles()}{overviewCss}</style><section class='page-head'><div><p>{intro}</p></div></section><section class='toolbar'><input id='search' placeholder='⌕  Search applications...'><select id='statusFilter'><option value=''>All Status</option><option>Configured</option><option>Not Configured</option></select><button onclick='location.reload()'>↻</button><button class='primary' onclick='document.getElementById(\"registrationInfoDialog\").showModal()'>ⓘ Application Registration</button></section><section class='metrics'><a class='metric' href='/'><span>▦</span><b>{rows.Count}</b><small>Total Applications</small></a><a class='metric green' href='/?status=Configured'><span>✓</span><b>{configured}</b><small>Configured</small></a><a class='metric{(rows.Count - configured > 0 ? " amber" : "")}' href='/?status=Not%20Configured'><span>!</span><b>{rows.Count - configured}</b><small>Not Configured</small></a><a class='metric{(orphanedContracts > 0 ? " amber" : "")}' href='/orphaned'><span>⚠</span><b>{orphanedContracts}</b><small>Orphaned Contracts</small></a><a class='metric' href='/contracts'><span>≡</span><b>{requirements}</b><small>Total Requirements</small></a></section><section class='workspace'><div><section class='panel table-panel'><table id='apps'><thead><tr><th>Application</th><th>Version</th><th>Site / Instance</th><th>Configuration</th><th>Secrets</th><th>Required</th><th>Optional</th><th>Last Updated</th><th></th></tr></thead><tbody>{tableRows}</tbody></table></section><section class='lower'><div class='panel recent-events'><h3>◴ Recent Logs</h3><div class='recent-event-head'><span>Application</span><span>Event</span><span>Time</span></div><div id='configurationRecentEvents'>{activity}</div></div><div class='panel'><h3>⌘ Quick Links</h3><div class='quick'><a href='/runbooks'>▤ <span><b>Configuration Runbooks</b><small>Commissioning and recovery guidance</small></span></a><a href='/contracts'>◇ <span><b>Application Contracts</b><small>Human-readable contract views</small></span></a><a href='/orphaned'>⚠ <span><b>Orphaned Contracts</b><small>Retired contracts with no active registration</small></span></a></div></div></section></div>{detail}</section><dialog id='registrationInfoDialog'><h2>Applications Register Automatically</h2><p>Applications publish their configuration requirements to System Configuration when they start. You do not manually add applications here.</p><p><b>Configuration Server</b><br><code id='configurationServerUrl'></code></p><p><b>Registration Endpoint</b><br><code id='registrationEndpointUrl'></code></p><p>Applications should normally configure <code>Aegis:Configuration:Url</code> with the Configuration Server address above.</p><p class='muted'>Normal applications authenticate directly with Configuration using their durable Common.Registration identity. Control-plane services use their restricted bootstrap identity. Secret values are never displayed here.</p><button onclick='this.closest(\"dialog\").close()'>Close</button></dialog>";
-    return ConfigurationShell.Render(active == "overview" ? "Overview" : "Applications", content, active);
+    return ConfigurationShell.Render("Applications", content, "applications");
 }
 
 static string RenderApplicationRow((ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation) x, int index, bool selected)
