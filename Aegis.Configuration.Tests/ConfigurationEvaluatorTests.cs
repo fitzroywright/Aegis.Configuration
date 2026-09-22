@@ -68,7 +68,7 @@ public sealed class ConfigurationEvaluatorTests
     public async Task ApplicationReportedConfiguredIsCompleteWithoutRuntimeProbe()
     {
         ApplicationConfigurationContract contract = new("app", "App", "1.0", [
-            new("url", "Service URL", ConfigurationRequirementKind.ExternalService, true, "Required service", ConfigurationKey: "Service:Url", IsConfigured: true, SafeDisplayValue: "https://example.invalid")
+            new("url", "Service URL", ConfigurationRequirementKind.ExternalService, true, "Required service", ConfigurationKey: "Service:Url", IsConfigured: true, DisplayValue: "https://example.invalid")
         ]);
 
         ConfigurationEvaluation result = await new ConfigurationEvaluator().EvaluateAsync(contract, TestContext.Current.CancellationToken);
@@ -76,7 +76,7 @@ public sealed class ConfigurationEvaluatorTests
         Assert.True(result.IsComplete);
         RequirementEvaluation requirement = result.Requirements.Single();
         Assert.Equal(ConfigurationState.Configured, requirement.State);
-        Assert.Equal("https://example.invalid", requirement.SafeDisplayValue);
+        Assert.Equal("https://example.invalid", requirement.DisplayValue);
     }
 
     [Fact]
@@ -86,7 +86,7 @@ public sealed class ConfigurationEvaluatorTests
             new("port", "Directory Port", ConfigurationRequirementKind.Configuration, true, "LDAP port",
                 ConfigurationKey: "Security:Port",
                 IsConfigured: false,
-                SafeDisplayValue: "636",
+                DisplayValue: "636",
                 ConfigurationState: "Default",
                 EffectiveValueAvailable: true,
                 EffectiveSource: "Runtime/Code Default",
@@ -136,7 +136,7 @@ public sealed class ConfigurationEvaluatorTests
 
         Assert.True(result.IsComplete);
         RequirementEvaluation requirement = result.Requirements.Single();
-        Assert.Null(requirement.SafeDisplayValue);
+        Assert.Null(requirement.DisplayValue);
         Assert.True(requirement.Sensitive);
     }
 }
