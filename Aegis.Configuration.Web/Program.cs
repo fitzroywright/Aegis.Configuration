@@ -553,130 +553,7 @@ app.MapGet("/contracts/raw", async (
 });
 
 app.MapGet("/api/contracts", async (IConfigurationContractStore store, CancellationToken ct) => Results.Ok(await store.LoadAllAsync(ct)));
-app.MapGet("/registration-lifecycle", async (
-    HttpContext context,
-    LifecycleRegistrationAuthority authority,
-    CancellationToken ct) =>
-{
-    if (!Has(context, "Configuration.View")) return Forbidden();
-
-    IReadOnlyList<LifecycleRegistrationRecord> records = await authority.ListAllAsync(ct);
-    LifecycleFlowSnapshot flowSnapshot = LifecycleFlowSnapshotBuilder.Build(records, 250);
-    int registered = records.Count(x => x.State == LifecycleRegistrationState.Registered);
-    int pending = records.Count(x => x.State is LifecycleRegistrationState.Pending or LifecycleRegistrationState.Approved);
-    int recovery = records.Count(x => x.State is LifecycleRegistrationState.RecoveryPending or LifecycleRegistrationState.RecoveryApproved);
-    int attention = records.Count(x => x.State is LifecycleRegistrationState.IdentityConflict or LifecycleRegistrationState.Revoked or LifecycleRegistrationState.Rejected);
-
-    string rows = records.Count == 0
-        ? "<tr><td colspan='4' class='empty'>No registration lifecycle records are currently available.</td></tr>"
-        : string.Join("", records.OrderBy(x => x.ApplicationId).Select(x =>
-        {
-            string id = Uri.EscapeDataString(x.RegistrationId);
-            string actions = x.State switch
-            {
-                LifecycleRegistrationState.Pending or LifecycleRegistrationState.RecoveryPending =>
-                    $"<button class='row-action approve' data-registration-action='approve' data-registration-id='{id}'>Approve</button>" +
-                    $"<button class='row-action danger' data-registration-action='reject' data-registration-id='{id}'>Reject</button>",
-
-                LifecycleRegistrationState.Registered =>
-                    $"<button class='row-action danger' data-registration-action='revoke' data-registration-id='{id}'>Revoke</button>",
-
-                LifecycleRegistrationState.Rejected or LifecycleRegistrationState.Revoked =>
-                    $"<button class='row-action danger' data-registration-action='purge' data-registration-id='{id}'>Purge</button>",
-
-                LifecycleRegistrationState.IdentityConflict =>
-                    $"<button class='row-action approve' data-registration-action='conflict/retain-existing' data-registration-id='{id}'>Retain Existing</button>" +
-                    $"<button class='row-action danger' data-registration-action='conflict/replace-with-incoming' data-registration-id='{id}'>Use Incoming</button>",
-
-                _ => "<span class='muted'>No operator action</span>"
-            };
-
-            return $"<tr><td><div style='display:flex;align-items:center;gap:9px'>{RegistrationIcon(x)}<span><b>{E(x.ApplicationId)}</b><small class='registration-id'>Registration ID: <code>{E(x.RegistrationId)}</code> <button type='button' class='copy-registration-id' data-copy-registration-id='{E(x.RegistrationId)}' title='Copy Registration ID'>Copy</button></small><small class='registration-id'>Installation ID: <code>{E(x.InstallationId)}</code> <button type='button' class='copy-installation-id' data-copy-installation-id='{E(x.InstallationId)}' title='Copy Installation ID'>Copy</button></small></span></div></td><td>{E(x.InstanceId)}</td><td><span class='status {(x.State == LifecycleRegistrationState.Registered ? "good" : "warn")}'>{E(x.State.ToString())}</span></td><td><div class='row-actions'>{actions}</div></td></tr>";
-        }));
-
-    string flowCards = flowSnapshot.Journeys.Count == 0
-        ? "<div class='empty'>No registration lifecycle journeys are currently available.</div>"
-        : string.Join("", flowSnapshot.Journeys.Select(journey =>
-        {
-            LifecycleFlowEventView[] journeyEvents = flowSnapshot.Events
-                .Where(x => x.RegistrationId == journey.RegistrationId)
-                .OrderBy(x => x.AtUtc)
-                .ToArray();
-
-            string[] normalStages = ["Request", "Approval", "Claim", "Authenticate", "Publish", "Registered"];
-            string[] recoveryStages = ["Recovery", "Approval", "Claim", "Authenticate", "Publish", "Registered"];
-            string[] stages = journey.State.StartsWith("Recovery", StringComparison.OrdinalIgnoreCase)
-                ? recoveryStages
-                : normalStages;
-
-            HashSet<string> completedStages = journeyEvents
-                .Where(x => x.Outcome is "Succeeded" or "Resolved")
-                .Select(x => x.Stage)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            HashSet<string> failedStages = journeyEvents
-                .Where(x => x.Outcome == "Failed")
-                .Select(x => x.Stage)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            string stageMarkup = string.Join("", stages.Select(stage =>
-            {
-                bool registeredCompleted =
-                    stage.Equals("Registered", StringComparison.OrdinalIgnoreCase) &&
-                    journey.State.Equals("Registered", StringComparison.OrdinalIgnoreCase);
-
-                string css = failedStages.Contains(stage)
-                    ? "failed"
-                    : completedStages.Contains(stage) || registeredCompleted
-                        ? "done"
-                        : stage.Equals(journey.CurrentStage, StringComparison.OrdinalIgnoreCase) ||
-                          (journey.CurrentStage == "Recovery Approval" && stage == "Approval") ||
-                          (journey.CurrentStage == "Recovery Claim" && stage == "Claim")
-                            ? "current"
-                            : "waiting";
-
-                return $"<div class='lifecycle-stage {css}'><i></i><span>{E(stage)}</span></div>";
-            }));
-
-            string terminal = journey.State switch
-            {
-                "Revoked" => "<div class='lifecycle-terminal failed'><i></i><span>Revoked</span></div>",
-                "Rejected" => "<div class='lifecycle-terminal failed'><i></i><span>Rejected</span></div>",
-                "IdentityConflict" => "<div class='lifecycle-terminal failed'><i></i><span>Identity Conflict</span></div>",
-                _ => string.Empty
-            };
-
-            string operatorStatus = journey.State switch
-            {
-                "Revoked" => "Revoked",
-                "Rejected" => "Rejected",
-                "IdentityConflict" => "Conflict",
-                "Registered" => "Complete",
-                _ => journey.CurrentStage
-            };
-
-            return $"<article class='lifecycle-journey health-{E(journey.Health.ToLowerInvariant())}'><header><div>{RegistrationIcon(records.First(x => x.RegistrationId == journey.RegistrationId))}<span><b>{E(journey.ApplicationId)}</b><small>{E(journey.InstanceId)} · {E(journey.State)}</small><small class='registration-id'>Registration ID: <code>{E(journey.RegistrationId)}</code> <button type='button' class='copy-registration-id' data-copy-registration-id='{E(journey.RegistrationId)}' title='Copy Registration ID'>Copy</button></small><small class='registration-id'>Installation ID: <code>{E(journey.InstallationId)}</code> <button type='button' class='copy-installation-id' data-copy-installation-id='{E(journey.InstallationId)}' title='Copy Installation ID'>Copy</button></small></span></div><strong>{E(operatorStatus)}</strong></header><div class='lifecycle-track'>{stageMarkup}{terminal}</div><footer><span>Current: <b>{E(journey.CurrentStage)}</b></span><span>Last action: <b>{E(journey.LastAction ?? "—")}</b></span><span>Time at stage: <b>{FormatLifecycleAge(journey.StageAgeSeconds)}</b></span></footer></article>";
-        }));
-
-    string lifecycleStyles =
-        "<style>" +
-        ".lifecycle-flow-panel{padding:14px 16px;margin-bottom:16px}.lifecycle-flow-panel>h2{margin:0 0 4px;color:var(--arctic-ice);font-size:16px}.lifecycle-flow-panel>p{margin:0 0 12px;color:var(--muted);font-size:12px}" +
-        ".lifecycle-flow-grid{display:grid;gap:10px}.lifecycle-journey{border:1px solid var(--line-soft);border-radius:9px;background:#020b13;padding:11px 12px}.lifecycle-journey header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.lifecycle-journey header>div{display:flex;align-items:center;gap:9px}.lifecycle-journey header span{display:flex;flex-direction:column}.lifecycle-journey header small{color:var(--muted);font-size:11px}.lifecycle-journey header strong{font-size:11px;text-transform:uppercase;letter-spacing:.06em}" +
-        ".lifecycle-track{display:flex;align-items:flex-start;gap:0;overflow-x:auto;padding:5px 0 8px}.lifecycle-stage,.lifecycle-terminal{position:relative;min-width:100px;display:flex;flex-direction:column;align-items:center;gap:5px;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase}.lifecycle-stage:not(:last-child)::after{content:'';position:absolute;top:8px;left:58%;width:84%;height:3px;background:#263746;z-index:0}.lifecycle-stage i,.lifecycle-terminal i{position:relative;z-index:2;width:18px;height:18px;border-radius:50%;background:#263746;border:3px solid #0a1720;box-shadow:0 0 0 1px #415466}.lifecycle-stage.done i{background:#56d68a;box-shadow:0 0 12px #56d68a}.lifecycle-stage.done::after{background:#56d68a}.lifecycle-stage.current i{background:#ffcc66;box-shadow:0 0 14px #ffcc66;animation:lifecyclePulse 1.25s infinite}.lifecycle-stage.failed i,.lifecycle-terminal.failed i{background:#ff5f4a;box-shadow:0 0 14px #ff5f4a}.lifecycle-stage.failed{color:#ff9b8e}.lifecycle-stage.current{color:#ffe1a3}.lifecycle-stage.done{color:#9ff0ba}.lifecycle-terminal{margin-left:8px}" +
-        ".registration-id{display:block;margin-top:3px;color:var(--muted);font-size:10px}.registration-id code{color:var(--arctic-ice);font-size:10px;user-select:all}.copy-registration-id,.copy-installation-id{margin-left:5px;padding:2px 6px;border:1px solid var(--line-soft);border-radius:4px;background:#092033;color:var(--arctic-ice);font-size:9px;cursor:pointer}.copy-registration-id:hover,.copy-installation-id:hover{border-color:#ffcc66;color:#ffcc66}" +
-        ".lifecycle-journey footer{display:flex;flex-wrap:wrap;gap:8px 20px;border-top:1px solid var(--line-soft);padding-top:8px;color:var(--muted);font-size:10px}.health-failed{border-color:#8a372c}.health-stalled{border-color:#9b6c20}.health-slow{border-color:#7b6525}@keyframes lifecyclePulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.18);opacity:.72}}" +
-        "</style>";
-
-    string content =
-        lifecycleStyles +
-        "<section class='page-head'><div><p>Authoritative durable registration state for the control plane.</p></div></section>" +
-        $"<section id='lifecycleMetrics' class='metrics'><a class='metric' href='/registration-lifecycle?state=Registered'><span>R</span><b>{registered}</b><small>Registered</small></a><a class='metric{(pending > 0 ? " issue-card" : "")}' href='/registration-lifecycle?state=Pending'><span>P</span><b>{pending}</b><small>Pending</small></a><a class='metric{(recovery > 0 ? " issue-card" : "")}' href='/registration-lifecycle?state=Recovery'><span>C</span><b>{recovery}</b><small>Recovery</small></a><a class='metric{(attention > 0 ? " issue-card" : "")}' href='/registration-lifecycle?state=Attention'><span>!</span><b>{attention}</b><small>Attention</small></a><a class='metric' href='/registration-lifecycle'><span>Σ</span><b>{records.Count}</b><small>Total</small></a></section>" +
-        "<section id='lifecycleFlowPanel' class='panel lifecycle-flow-panel'><h2>Registration Flow</h2><p>Live lifecycle journeys. Gold indicates the current stage, green completed stages, and red a failed or terminal state.</p><div class='lifecycle-flow-grid'>" + flowCards + "</div></section>" +
-        "<section id='lifecycleTablePanel' class='panel table-panel'><table><thead><tr><th>Application</th><th>Instance</th><th>State</th><th>Actions</th></tr></thead><tbody>" + rows + "</tbody></table></section>" +
-        "<script>(function(){document.addEventListener('click',async e=>{const b=e.target.closest('[data-copy-registration-id],[data-copy-installation-id]');if(!b)return;e.preventDefault();e.stopPropagation();const value=b.dataset.copyRegistrationId||b.dataset.copyInstallationId;if(!value)return;const label=b.dataset.copyRegistrationId?'Registration ID':'Installation ID';try{await navigator.clipboard.writeText(value);const old=b.textContent;b.textContent='Copied';setTimeout(()=>b.textContent=old,1200);}catch{prompt(label,value);}});let refreshing=false;async function refreshLifecycle(){if(refreshing||document.hidden)return;if(document.querySelector('[data-registration-action]:disabled'))return;refreshing=true;try{const response=await fetch(location.href,{cache:'no-store',headers:{'X-Aegis-Partial-Refresh':'registration-lifecycle'}});if(!response.ok)return;const html=await response.text();const doc=new DOMParser().parseFromString(html,'text/html');for(const id of ['lifecycleMetrics','lifecycleFlowPanel','lifecycleTablePanel']){const current=document.getElementById(id),next=doc.getElementById(id);if(current&&next)current.innerHTML=next.innerHTML;}}catch{}finally{refreshing=false}}setInterval(refreshLifecycle,3000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshLifecycle()});})();</script>";
-
-    return Html(ConfigurationShell.Render("Registration Lifecycle", content, "registration"));
-});
+app.MapGet("/registration-lifecycle", () => Results.Redirect("https://operations.ffpja.org/registration/lifecycle", permanent: true));
 
 app.MapGet("/orphaned", async (
     HttpContext context,
@@ -694,7 +571,7 @@ app.MapGet("/orphaned", async (
 
     string content =
         "<section class='page-head'><div><p class='muted' style='font-size:12px;opacity:.72'>Contracts retired because no active registration exists for the application.</p></div></section>" +
-        "<section class='panel orphan-help'><b>What to do</b><span>If the application still exists, start it and restore its registration so it can publish a fresh contract. If the application was intentionally removed, leave the orphaned contract retired as historical evidence; no action is required. Investigate entries you do not recognize before deleting any registration data.</span><a href='/registration-lifecycle'>Open Registration Lifecycle</a></section>" +
+        "<section class='panel orphan-help'><b>What to do</b><span>If the application still exists, start it and restore its registration so it can publish a fresh contract. If the application was intentionally removed, leave the orphaned contract retired as historical evidence; no action is required. Investigate entries you do not recognize before deleting any registration data.</span><a href='https://operations.ffpja.org/registration/lifecycle'>Open Registration Lifecycle</a></section>" +
         "<section class='panel table-panel'><table><thead><tr><th>Application</th><th>Version</th><th>Instance</th><th>Last Registered</th><th>Retired</th><th>Reason</th></tr></thead><tbody>" + rows + "</tbody></table></section>";
 
     return Html(ConfigurationShell.Render("Orphaned Contracts", content, "orphaned"));
@@ -711,10 +588,10 @@ app.MapGet("/runbooks", async (
     string rows = artifacts.Count == 0
         ? "<div class='empty'>No generated runbooks yet. A runbook is created automatically after a successful authenticated contract publication.</div>"
         : string.Join("", artifacts.Select(x =>
-            $"<a class='req runbook-row' href='/runbooks/{Uri.EscapeDataString(x.ApplicationId)}'><span><b>{E(x.ApplicationId)}</b><small>Generated <time class='local-datetime' datetime='{E(x.LastUpdatedUtc.ToString("O"))}'>{E(x.LastUpdatedUtc.ToString("u"))}</time></small></span><span class='runbook-open'>Open Runbook</span><i class='ok'>✓</i></a>"));
+            $"<a class='req runbook-row' href='/runbooks/{Uri.EscapeDataString(x.ApplicationId)}'><span><b>{E(x.ApplicationId)}</b><small>Version {x.CurrentVersion} · updated <time class='local-datetime' datetime='{E(x.LastUpdatedUtc.ToString("O"))}'>{E(x.LastUpdatedUtc.ToString("u"))}</time></small></span><span class='runbook-open'>Open Runbook</span><i class='ok'>✓</i></a>"));
 
     string content =
-        "<section class='page-head'><div><p>Automatically generated operational artifacts from authenticated application contracts.</p></div></section>" +
+        "<section class='page-head'><div><p>Operational runbooks generated from authenticated application contracts. Authorized operators can edit them; every content change is retained as an immutable version.</p></div></section>" +
         "<section class='panel'><div class='reqs'>" + rows + "</div></section>";
 
     return Html(ConfigurationShell.Render("Configuration Runbooks", content, "runbooks"));
@@ -730,10 +607,95 @@ app.MapGet("/runbooks/{applicationId}", async (
 
     string? markdown = await runbooks.ReadAsync(applicationId, ct);
     if (markdown is null) return Results.NotFound();
+
+    IReadOnlyList<RunbookVersion> versions = await runbooks.ListVersionsAsync(applicationId, ct);
+    int currentVersion = versions.Select(x => x.Version).DefaultIfEmpty(0).Max();
+    bool canManage = Has(context, "Configuration.Manage");
+    string history = versions.Count == 0
+        ? "<div class='empty'>No version history yet. The next generated or edited change will establish version 1.</div>"
+        : string.Join("", versions.Select(v =>
+            $"<div class='runbook-version'><span><b>v{v.Version}</b><small>{E(v.Source)} · {E(v.Author)} · <time class='local-datetime' datetime='{E(v.CreatedAtUtc.ToString("O"))}'>{E(v.CreatedAtUtc.ToString("u"))}</time>{(string.IsNullOrWhiteSpace(v.Note) ? "" : " · " + E(v.Note))}</small></span><span class='runbook-version-actions'><a href='/runbooks/{Uri.EscapeDataString(applicationId)}/versions/{v.Version}'>View</a>{(canManage && v.Version != currentVersion ? $"<form method='post' action='/runbooks/{Uri.EscapeDataString(applicationId)}/versions/{v.Version}/restore'><button type='submit'>Restore</button></form>" : "")}</span></div>"));
+
+    string editor = canManage
+        ? $"<section class='panel runbook-editor'><h2>Edit Runbook</h2><form method='post' action='/runbooks/{Uri.EscapeDataString(applicationId)}/edit'><textarea name='markdown' spellcheck='false'>{E(markdown)}</textarea><div class='runbook-editor-actions'><input name='note' maxlength='300' placeholder='Change note (optional)'><button class='primary' type='submit'>Save New Version</button></div></form></section>"
+        : string.Empty;
+
+    string css = """
+.runbook-layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(310px,.65fr);gap:14px;align-items:start}
+.runbook-preview pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--starship-white)}
+.runbook-editor textarea{width:100%;min-height:52vh;resize:vertical;background:#02080d;color:var(--starship-white);border:1px solid var(--line);border-radius:8px;padding:12px;font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace}
+.runbook-editor-actions{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:10px}.runbook-editor-actions input{background:#071722;color:var(--starship-white);border:1px solid var(--line);border-radius:8px;padding:10px}
+.runbook-version{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line-soft)}.runbook-version small{display:block;color:var(--muted);margin-top:3px}.runbook-version-actions{display:flex;gap:7px;align-items:center}.runbook-version-actions form{margin:0}.runbook-version-actions a,.runbook-version-actions button{border:1px solid var(--line);border-radius:7px;background:#071722;color:var(--starship-white);padding:7px 9px;cursor:pointer}
+@media(max-width:1100px){.runbook-layout{grid-template-columns:1fr}}
+""";
+
     string content =
-        "<section class='page-head'><div><p>Generated operational recovery and commissioning guidance.</p></div></section>" +
-        "<section class='panel' style='padding:16px'><pre style='white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--starship-white)'>" + E(markdown) + "</pre></section>";
+        "<style>" + css + "</style>" +
+        $"<section class='page-head'><div><p>Operational recovery and commissioning guidance. Current version: <b>v{currentVersion}</b>.</p></div></section>" +
+        "<section class='runbook-layout'><div>" +
+        editor +
+        "<section class='panel runbook-preview' style='padding:16px'><h2>Current Runbook</h2><pre>" + E(markdown) + "</pre></section>" +
+        "</div><section class='panel'><h2>Version History</h2><div class='muted'>Generated, edited and restored versions are retained. Restoring creates a new version; history is never deleted.</div>" + history + "</section></section>";
+
     return Html(ConfigurationShell.Render(applicationId + " Runbook", content, "runbooks"));
+});
+
+app.MapPost("/runbooks/{applicationId}/edit", async (
+    HttpContext context,
+    string applicationId,
+    RunbookArtifactStore runbooks,
+    CancellationToken ct) =>
+{
+    if (!Has(context, "Configuration.Manage")) return Forbidden();
+    IFormCollection form = await context.Request.ReadFormAsync(ct);
+    string markdown = form["markdown"].ToString();
+    string note = form["note"].ToString();
+    if (string.IsNullOrWhiteSpace(markdown))
+        return Results.BadRequest(new { error = "Runbook content cannot be empty." });
+
+    string author = context.Items.TryGetValue("SuiteIdentity", out object? identityValue) && identityValue is SuiteIdentity identity
+        ? identity.DisplayName
+        : "unknown";
+    await runbooks.SaveEditAsync(applicationId, markdown, author, note, ct);
+    return Results.Redirect("/runbooks/" + Uri.EscapeDataString(applicationId));
+});
+
+app.MapGet("/runbooks/{applicationId}/versions/{version:int}", async (
+    HttpContext context,
+    string applicationId,
+    int version,
+    RunbookArtifactStore runbooks,
+    CancellationToken ct) =>
+{
+    if (!Has(context, "Configuration.View")) return Forbidden();
+
+    string? markdown = await runbooks.ReadVersionAsync(applicationId, version, ct);
+    if (markdown is null) return Results.NotFound();
+    RunbookVersion? metadata = (await runbooks.ListVersionsAsync(applicationId, ct)).FirstOrDefault(x => x.Version == version);
+    string detail = metadata is null
+        ? $"Version {version}"
+        : $"v{metadata.Version} · {E(metadata.Source)} · {E(metadata.Author)} · {E(metadata.CreatedAtUtc.ToString("u"))}{(string.IsNullOrWhiteSpace(metadata.Note) ? "" : " · " + E(metadata.Note))}";
+    string content =
+        $"<section class='page-head'><div><p>{detail}</p></div><a class='primary' href='/runbooks/{Uri.EscapeDataString(applicationId)}'>Back to Current</a></section>" +
+        "<section class='panel' style='padding:16px'><pre style='white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--starship-white)'>" + E(markdown) + "</pre></section>";
+    return Html(ConfigurationShell.Render(applicationId + " Runbook v" + version, content, "runbooks"));
+});
+
+app.MapPost("/runbooks/{applicationId}/versions/{version:int}/restore", async (
+    HttpContext context,
+    string applicationId,
+    int version,
+    RunbookArtifactStore runbooks,
+    CancellationToken ct) =>
+{
+    if (!Has(context, "Configuration.Manage")) return Forbidden();
+
+    string author = context.Items.TryGetValue("SuiteIdentity", out object? identityValue) && identityValue is SuiteIdentity identity
+        ? identity.DisplayName
+        : "unknown";
+    RunbookArtifact? restored = await runbooks.RestoreAsync(applicationId, version, author, ct);
+    if (restored is null) return Results.NotFound();
+    return Results.Redirect("/runbooks/" + Uri.EscapeDataString(applicationId));
 });
 
 app.MapGet("/api/report/{applicationId}", async (string applicationId, IConfigurationContractStore store, ConfigurationEvaluator evaluator, CommissioningReportRenderer renderer, CancellationToken ct) =>
@@ -867,7 +829,7 @@ static string RenderDashboard(List<(ApplicationConfigurationContract Contract, C
     string activity = rows.Count == 0 ? "<div class='empty'>No recent configuration events.</div>" : string.Join("", rows.OrderByDescending(x => x.Contract.LastRegisteredAtUtc).Take(4).Select(x => $"<div class='recent-event-row'><b>{E(x.Contract.DisplayName)}</b><span>Registered</span><time>{Registered(x.Contract.LastRegisteredAtUtc, "MMM dd yyyy hh:mm tt")}</time></div>"));
     string overviewCss = string.Empty;
     string intro = "All registered applications and their configuration status";
-    string content = $"<style>{SecretManagerStyles()}{overviewCss}</style><section class='page-head'><div><p>{intro}</p></div></section><section class='toolbar'><input id='search' placeholder='⌕  Search applications...'><select id='statusFilter'><option value=''>All Status</option><option>Configured</option><option>Not Configured</option></select><button onclick='location.reload()'>↻</button><button class='primary' onclick='document.getElementById(\"registrationInfoDialog\").showModal()'>ⓘ Application Registration</button></section><section class='metrics'><a class='metric' href='/'><span>▦</span><b>{rows.Count}</b><small>Total Applications</small></a><a class='metric green' href='/?status=Configured'><span>✓</span><b>{configured}</b><small>Configured</small></a><a class='metric{(rows.Count - configured > 0 ? " amber" : "")}' href='/?status=Not%20Configured'><span>!</span><b>{rows.Count - configured}</b><small>Not Configured</small></a><a class='metric{(orphanedContracts > 0 ? " amber" : "")}' href='/orphaned'><span>⚠</span><b>{orphanedContracts}</b><small>Orphaned Contracts</small></a><a class='metric' href='/contracts'><span>≡</span><b>{requirements}</b><small>Total Requirements</small></a></section><section class='workspace'><div><section class='panel table-panel'><table id='apps'><thead><tr><th>Application</th><th>Version</th><th>Site / Instance</th><th>Configuration</th><th>Secrets</th><th>Required</th><th>Optional</th><th>Last Updated</th><th></th></tr></thead><tbody>{tableRows}</tbody></table></section><section class='lower'><div class='panel recent-events'><h3>◴ Recent Logs</h3><div class='recent-event-head'><span>Application</span><span>Event</span><span>Time</span></div><div id='configurationRecentEvents'>{activity}</div></div><div class='panel'><h3>⌘ Quick Links</h3><div class='quick'><a href='/runbooks'>▤ <span><b>Configuration Runbooks</b><small>Commissioning and recovery guidance</small></span></a><a href='/contracts'>◇ <span><b>Application Contracts</b><small>Human-readable contract views</small></span></a><a href='/orphaned'>⚠ <span><b>Orphaned Contracts</b><small>Retired contracts with no active registration</small></span></a></div></div></section></div>{detail}</section><dialog id='registrationInfoDialog'><h2>Applications Register Automatically</h2><p>Applications publish their configuration requirements to System Configuration when they start. You do not manually add applications here.</p><p><b>Configuration Server</b><br><code id='configurationServerUrl'></code></p><p><b>Registration Endpoint</b><br><code id='registrationEndpointUrl'></code></p><p>Applications should normally configure <code>Aegis:Configuration:Url</code> with the Configuration Server address above.</p><p class='muted'>Normal applications authenticate directly with Configuration using their durable Common.Registration identity. Control-plane services use their restricted bootstrap identity. Secret values are never displayed here.</p><button onclick='this.closest(\"dialog\").close()'>Close</button></dialog>";
+    string content = $"<style>{SecretManagerStyles()}{overviewCss}</style><section class='page-head'><div><p>{intro}</p></div></section><section class='toolbar'><input id='search' placeholder='⌕  Search applications...'><select id='statusFilter'><option value=''>All Status</option><option>Configured</option><option>Not Configured</option></select><button onclick='location.reload()'>↻</button><button class='primary' onclick='document.getElementById(\"registrationInfoDialog\").showModal()'>ⓘ Application Registration</button></section><section class='workspace'><div><section class='panel table-panel'><table id='apps'><thead><tr><th>Application</th><th>Version</th><th>Site / Instance</th><th>Configuration</th><th>Secrets</th><th>Required</th><th>Optional</th><th>Last Updated</th><th></th></tr></thead><tbody>{tableRows}</tbody></table></section><section class='lower'><div class='panel recent-events'><h3>◴ Recent Logs</h3><div class='recent-event-head'><span>Application</span><span>Event</span><span>Time</span></div><div id='configurationRecentEvents'>{activity}</div></div><div class='panel'><h3>⌘ Quick Links</h3><div class='quick'><a href='/runbooks'>▤ <span><b>Configuration Runbooks</b><small>Commissioning and recovery guidance</small></span></a><a href='/contracts'>◇ <span><b>Application Contracts</b><small>Human-readable contract views</small></span></a><a href='/orphaned'>⚠ <span><b>Orphaned Contracts</b><small>Retired contracts with no active registration</small></span></a></div></div></section></div>{detail}</section><dialog id='registrationInfoDialog'><h2>Applications Register Automatically</h2><p>Applications publish their configuration requirements to System Configuration when they start. You do not manually add applications here.</p><p><b>Configuration Server</b><br><code id='configurationServerUrl'></code></p><p><b>Registration Endpoint</b><br><code id='registrationEndpointUrl'></code></p><p>Applications should normally configure <code>Aegis:Configuration:Url</code> with the Configuration Server address above.</p><p class='muted'>Normal applications authenticate directly with Configuration using their durable Common.Registration identity. Control-plane services use their restricted bootstrap identity. Secret values are never displayed here.</p><button onclick='this.closest(\"dialog\").close()'>Close</button></dialog>";
     return ConfigurationShell.Render("Applications", content, "applications");
 }
 
