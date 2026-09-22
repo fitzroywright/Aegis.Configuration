@@ -86,7 +86,7 @@ public sealed record RuntimeStorageVolume(
 
 /// <summary>Describes diagnostic capability only; it never carries health state or credential values.</summary>
 public sealed record DiagnosticsCapability(
-    string? BaseUrlConfigurationKey = null,
+    string? BaseUrl = null,
     string HealthPath = "/health",
     string DiagnosticsRunPath = "/api/engineering/diagnostics/run",
     string DiagnosticsRunsPath = "/api/engineering/diagnostics/runs",
@@ -107,7 +107,7 @@ public sealed record ConfigurationRequirement(
     string? SecretName = null,
     string? InstructionId = null,
     bool? IsConfigured = null,
-    string? SafeDisplayValue = null,
+    string? DisplayValue = null,
     string? Example = null,
     bool Sensitive = false,
     string? ConfigurationState = null,
@@ -149,7 +149,7 @@ public sealed record RequirementEvaluation(
     ConfigurationState State,
     string Message,
     string? Purpose = null,
-    string? SafeDisplayValue = null,
+    string? DisplayValue = null,
     string? Example = null,
     bool Sensitive = false,
     bool ExplicitlyConfigured = false,
