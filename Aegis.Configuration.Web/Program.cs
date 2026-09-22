@@ -228,7 +228,9 @@ app.MapGet("/secrets", () => Results.Redirect("/applications"));
 
 app.MapGet("/providers", () => Results.Redirect("/applications"));
 
-app.MapGet("/logs", (HttpContext context) =>
+app.MapGet("/logs", () => Results.Redirect("/configuration/logs"));
+
+app.MapGet("/configuration/logs", (HttpContext context) =>
 {
     if (!Has(context, "Configuration.View")) return Forbidden();
 
