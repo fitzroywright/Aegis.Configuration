@@ -47,7 +47,7 @@ public sealed class ContractValidator
             if (!requirement.IsConfigured.HasValue && !explicitlyUnknown)
                 errors.Add($"Requirement '{requirementName}' must publish IsConfigured or explicitly report an unverifiable state.");
 
-            if (requirement.Sensitive && !string.IsNullOrWhiteSpace(requirement.SafeDisplayValue))
+            if (requirement.Sensitive && !string.IsNullOrWhiteSpace(requirement.DisplayValue))
                 errors.Add($"Sensitive requirement '{requirementName}' cannot publish a display value.");
 
             if (requirement.Kind == ConfigurationRequirementKind.Secret && !string.IsNullOrWhiteSpace(requirement.ConfigurationKey))
