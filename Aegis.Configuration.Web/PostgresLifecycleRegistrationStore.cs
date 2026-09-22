@@ -47,7 +47,8 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                    claim_token_hash, claim_expires_at_utc, credential_hash,
                    created_at_utc, updated_at_utc, approved_at_utc, registered_at_utc,
                    last_authenticated_at_utc, revoked_at_utc, metadata_json,
-                   conflict_installation_id
+                   conflict_installation_id, active_runtime_session_id,
+                   runtime_lease_expires_at_utc, conflict_runtime_session_id
             FROM aegis_registration
             ORDER BY updated_at_utc DESC;
             """,
@@ -88,7 +89,8 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                    claim_token_hash, claim_expires_at_utc, credential_hash,
                    created_at_utc, updated_at_utc, approved_at_utc, registered_at_utc,
                    last_authenticated_at_utc, revoked_at_utc, metadata_json,
-                   conflict_installation_id
+                   conflict_installation_id, active_runtime_session_id,
+                   runtime_lease_expires_at_utc, conflict_runtime_session_id
             FROM aegis_registration
             WHERE registration_id = @id;
             """,
@@ -124,7 +126,8 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                    claim_token_hash, claim_expires_at_utc, credential_hash,
                    created_at_utc, updated_at_utc, approved_at_utc, registered_at_utc,
                    last_authenticated_at_utc, revoked_at_utc, metadata_json,
-                   conflict_installation_id
+                   conflict_installation_id, active_runtime_session_id,
+                   runtime_lease_expires_at_utc, conflict_runtime_session_id
             FROM aegis_registration
             WHERE lower(application_id) = lower(@application_id)
               AND lower(instance_id) = lower(@instance_id)
@@ -167,7 +170,8 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                 claim_token_hash, claim_expires_at_utc, credential_hash,
                 created_at_utc, updated_at_utc, approved_at_utc, registered_at_utc,
                 last_authenticated_at_utc, revoked_at_utc, metadata_json,
-                audit_json, conflict_installation_id
+                audit_json, conflict_installation_id, active_runtime_session_id,
+                runtime_lease_expires_at_utc, conflict_runtime_session_id
             )
             VALUES
             (
@@ -175,7 +179,8 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                 @claim_token_hash, @claim_expires_at_utc, @credential_hash,
                 @created_at_utc, @updated_at_utc, @approved_at_utc, @registered_at_utc,
                 @last_authenticated_at_utc, @revoked_at_utc, CAST(@metadata_json AS jsonb),
-                CAST(@audit_json AS jsonb), @conflict_installation_id
+                CAST(@audit_json AS jsonb), @conflict_installation_id, @active_runtime_session_id,
+                @runtime_lease_expires_at_utc, @conflict_runtime_session_id
             )
             ON CONFLICT (registration_id) DO UPDATE SET
                 application_id = EXCLUDED.application_id,
@@ -191,7 +196,10 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                 last_authenticated_at_utc = EXCLUDED.last_authenticated_at_utc,
                 revoked_at_utc = EXCLUDED.revoked_at_utc,
                 metadata_json = EXCLUDED.metadata_json,
-                conflict_installation_id = EXCLUDED.conflict_installation_id;
+                conflict_installation_id = EXCLUDED.conflict_installation_id,
+                active_runtime_session_id = EXCLUDED.active_runtime_session_id,
+                runtime_lease_expires_at_utc = EXCLUDED.runtime_lease_expires_at_utc,
+                conflict_runtime_session_id = EXCLUDED.conflict_runtime_session_id;
             """,
             connection,
             transaction);
@@ -219,6 +227,15 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
         command.Parameters.AddWithValue(
             "conflict_installation_id",
             (object?)record.ConflictInstallationId ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "active_runtime_session_id",
+            (object?)record.ActiveRuntimeSessionId ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "runtime_lease_expires_at_utc",
+            (object?)record.RuntimeLeaseExpiresAtUtc ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "conflict_runtime_session_id",
+            (object?)record.ConflictRuntimeSessionId ?? DBNull.Value);
 
         await command.ExecuteNonQueryAsync(ct);
 
@@ -298,7 +315,10 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                     revoked_at_utc timestamptz NULL,
                     metadata_json jsonb NULL,
                     audit_json jsonb NOT NULL DEFAULT '[]'::jsonb,
-                    conflict_installation_id text NULL
+                    conflict_installation_id text NULL,
+                    active_runtime_session_id text NULL,
+                    runtime_lease_expires_at_utc timestamptz NULL,
+                    conflict_runtime_session_id text NULL
                 );
 
                 ALTER TABLE aegis_registration
@@ -306,6 +326,15 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
 
                 ALTER TABLE aegis_registration
                     ADD COLUMN IF NOT EXISTS conflict_installation_id text NULL;
+
+                ALTER TABLE aegis_registration
+                    ADD COLUMN IF NOT EXISTS active_runtime_session_id text NULL;
+
+                ALTER TABLE aegis_registration
+                    ADD COLUMN IF NOT EXISTS runtime_lease_expires_at_utc timestamptz NULL;
+
+                ALTER TABLE aegis_registration
+                    ADD COLUMN IF NOT EXISTS conflict_runtime_session_id text NULL;
 
                 CREATE UNIQUE INDEX IF NOT EXISTS ux_aegis_registration_active_instance
                     ON aegis_registration (lower(application_id), lower(instance_id))
@@ -397,7 +426,10 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
             metadata,
             [])
         {
-            ConflictInstallationId = reader.IsDBNull(15) ? null : reader.GetString(15)
+            ConflictInstallationId = reader.IsDBNull(15) ? null : reader.GetString(15),
+            ActiveRuntimeSessionId = reader.IsDBNull(16) ? null : reader.GetString(16),
+            RuntimeLeaseExpiresAtUtc = reader.IsDBNull(17) ? null : reader.GetFieldValue<DateTimeOffset>(17),
+            ConflictRuntimeSessionId = reader.IsDBNull(18) ? null : reader.GetString(18)
         };
     }
 
