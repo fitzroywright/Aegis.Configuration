@@ -58,7 +58,7 @@ internal static class ConfigurationShell
     <a class="__LOGS__" href="/configuration/logs"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h10"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Logs</span></a>
   </nav>
   <button class="lcars-back" type="button" onclick="if(history.length>1){history.back()}else{location.href='/'}">Back</button>
-  <main class="detail-scroll">__CONTENT__<div class="aegis-busy-overlay" id="aegisBusyOverlay" aria-hidden="true"><div class="aegis-busy-scan" role="status" aria-live="polite"><div class="aegis-busy-grid"></div><div class="aegis-busy-wave"></div><div class="aegis-busy-sweep"></div><div class="aegis-busy-core"><i></i><i></i><i></i><i></i></div><div class="aegis-busy-copy"><b>Processing</b><span id="aegisBusyText">Analyzing system state</span></div></div></main>
+  <main class="detail-scroll">__CONTENT__<div class="aegis-busy-overlay" id="aegisBusyOverlay" aria-hidden="true"><div class="aegis-busy-scan" role="status" aria-live="polite"><div class="aegis-busy-grid"></div><div class="aegis-busy-wave"></div><div class="aegis-busy-sweep"></div><div class="aegis-busy-core"><i></i><i></i><i></i><i></i></div><div class="aegis-busy-copy"><b>Processing</b><span id="aegisBusyText">Analyzing system state</span></div></div></div></main>
 </section>
 
 <script>
