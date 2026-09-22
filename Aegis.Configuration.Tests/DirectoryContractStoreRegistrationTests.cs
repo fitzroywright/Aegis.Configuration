@@ -193,5 +193,5 @@ public sealed class DirectoryContractStoreRegistrationTests
     }
 
     private static ApplicationConfigurationContract CreateContract(string applicationId, string version, string configurationKey, bool configured)
-        => new(applicationId, "Demo Application", version, [new ConfigurationRequirement("service-url", "Service URL", ConfigurationRequirementKind.ExternalService, true, "Required endpoint.", ConfigurationKey: configurationKey, IsConfigured: configured, SafeDisplayValue: configured ? "https://example.invalid" : null)]);
+        => new(applicationId, "Demo Application", version, [new ConfigurationRequirement("service-url", "Service URL", ConfigurationRequirementKind.ExternalService, true, "Required endpoint.", ConfigurationKey: configurationKey, IsConfigured: configured, DisplayValue: configured ? "https://example.invalid" : null)]);
 }
