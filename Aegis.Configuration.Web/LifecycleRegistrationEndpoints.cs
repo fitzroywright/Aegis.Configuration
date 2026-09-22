@@ -376,6 +376,62 @@ internal static class LifecycleRegistrationEndpoints
             }
         });
 
+        app.MapPost("/api/registration/{registrationId}/remove-orphan", async (
+            HttpContext context,
+            string registrationId,
+            [Microsoft.AspNetCore.Mvc.FromBody] LifecycleDecisionRequest request,
+            LifecycleRegistrationAuthority authority,
+            RegistrationReconciliationState reconciliation,
+            CancellationToken ct) =>
+        {
+            if (!Has(context, "Configuration.Manage")) return Forbidden();
+            if (string.IsNullOrWhiteSpace(request.Reason))
+                return Results.BadRequest(new { error = "A reason is required to remove an orphaned registration." });
+
+            RegistrationReconciliationIssue? issue = reconciliation.Get().Issues
+                .FirstOrDefault(x =>
+                    string.Equals(x.RegistrationId, registrationId, StringComparison.Ordinal) &&
+                    x.Code is "AUTHENTICATION_STALE" or "NEVER_AUTHENTICATED");
+
+            if (issue is null)
+                return Results.Conflict(new { error = "Registration is not currently identified as orphaned by reconciliation." });
+
+            try
+            {
+                LifecycleRegistrationRecord? revoked = await authority.RevokeAsync(
+                    registrationId, Actor(context),
+                    context.Connection.RemoteIpAddress?.ToString(),
+                    context.Request.Headers.UserAgent.ToString(),
+                    request.Reason, Correlation(context), ct);
+
+                if (revoked is null) return Results.NotFound();
+
+                LifecycleRegistrationRecord? purged = await authority.PurgeAsync(
+                    registrationId, Actor(context),
+                    context.Connection.RemoteIpAddress?.ToString(),
+                    context.Request.Headers.UserAgent.ToString(),
+                    "Orphan cleanup: " + request.Reason, Correlation(context), ct);
+
+                return purged is null
+                    ? Results.NotFound()
+                    : Results.Ok(new
+                    {
+                        purged.RegistrationId,
+                        state = purged.State.ToString(),
+                        removed = true,
+                        auditRetained = true
+                    });
+            }
+            catch (PostgresException ex)
+            {
+                return PersistenceFailure("remove orphaned registration", ex);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+        });
+
         app.MapPost("/api/registration/{registrationId}/conflict/retain-existing", async (
             HttpContext context,
             string registrationId,
