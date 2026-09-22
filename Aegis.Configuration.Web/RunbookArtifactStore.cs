@@ -81,8 +81,18 @@ public sealed class RunbookArtifactStore
             Directory.CreateDirectory(_directory);
             string versionDirectory = VersionDirectory(applicationId);
             Directory.CreateDirectory(versionDirectory);
+            string currentFileName = applicationId + ".runbook.md";
+            string currentPath = Path.Combine(_directory, currentFileName);
+            int currentVersion = NextVersion(versionDirectory) - 1;
 
-            int nextVersion = NextVersion(versionDirectory);
+            if (currentVersion > 0 && File.Exists(currentPath))
+            {
+                string current = await File.ReadAllTextAsync(currentPath, cancellationToken);
+                if (string.Equals(current, markdown, StringComparison.Ordinal))
+                    return new RunbookArtifact(applicationId, currentFileName, File.GetLastWriteTimeUtc(currentPath), currentVersion);
+            }
+
+            int nextVersion = currentVersion + 1;
             DateTimeOffset now = DateTimeOffset.UtcNow;
             string versionFile = $"{nextVersion:D6}.runbook.md";
             string metadataFile = $"{nextVersion:D6}.json";
@@ -103,8 +113,6 @@ public sealed class RunbookArtifactStore
                 JsonSerializer.Serialize(metadata, JsonOptions),
                 cancellationToken);
 
-            string currentFileName = applicationId + ".runbook.md";
-            string currentPath = Path.Combine(_directory, currentFileName);
             await AtomicWriteAsync(currentPath, markdown, cancellationToken);
 
             return new RunbookArtifact(applicationId, currentFileName, now, nextVersion);
