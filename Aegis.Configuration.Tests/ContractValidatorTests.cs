@@ -48,6 +48,38 @@ public sealed class ContractValidatorTests
         Assert.Contains(result.Errors, x => x.Contains("cannot publish a display value", StringComparison.Ordinal));
     }
 
+
+    [Fact]
+    public void Validate_RequiresExplicitDiagnosticsBaseUrl()
+    {
+        ApplicationConfigurationContract contract = new(
+            "demo",
+            "Demo",
+            "1.0",
+            [new("setting", "Setting", ConfigurationRequirementKind.Configuration, true, "Purpose", IsConfigured: true)],
+            Diagnostics: new DiagnosticsCapability());
+
+        ContractValidationResult result = new ContractValidator().Validate(contract);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, x => x.Contains("Diagnostics.BaseUrl is required", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_AllowsExplicitDiagnosticsBaseUrl()
+    {
+        ApplicationConfigurationContract contract = new(
+            "demo",
+            "Demo",
+            "1.0",
+            [new("setting", "Setting", ConfigurationRequirementKind.Configuration, true, "Purpose", IsConfigured: true)],
+            Diagnostics: new DiagnosticsCapability(BaseUrl: "https://demo.example.org/"));
+
+        ContractValidationResult result = new ContractValidator().Validate(contract);
+
+        Assert.True(result.IsValid);
+    }
+
     [Fact]
     public void Validate_RejectsSecretAndConfigurationLocatorMixing()
     {
