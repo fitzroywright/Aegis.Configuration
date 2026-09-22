@@ -153,7 +153,7 @@ internal sealed class ConfigurationRegistrationPublisher(
             ["effectiveValueAvailable"] = value is not null,
             ["configurationState"] = value is not null ? "Configured" : "Unresolved",
             ["effectiveSource"] = value is not null ? "Resolved IConfiguration" : "Unresolved",
-            ["safeDisplayValue"] = value
+            ["displayValue"] = value
         };
     }
 
