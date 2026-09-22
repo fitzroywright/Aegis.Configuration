@@ -41,7 +41,7 @@ public sealed class ContractValidatorTests
     public void Validate_RejectsSensitiveDisplayValue()
     {
         ApplicationConfigurationContract contract = new("demo", "Demo", "1.0", [
-            new("secret", "Secret", ConfigurationRequirementKind.Secret, true, "Purpose", IsConfigured: true, SafeDisplayValue: "do-not-publish", Sensitive: true)
+            new("secret", "Secret", ConfigurationRequirementKind.Secret, true, "Purpose", IsConfigured: true, DisplayValue: "do-not-publish", Sensitive: true)
         ]);
         ContractValidationResult result = new ContractValidator().Validate(contract);
         Assert.False(result.IsValid);
