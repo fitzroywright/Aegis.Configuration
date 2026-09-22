@@ -588,10 +588,10 @@ app.MapGet("/runbooks", async (
     string rows = artifacts.Count == 0
         ? "<div class='empty'>No generated runbooks yet. A runbook is created automatically after a successful authenticated contract publication.</div>"
         : string.Join("", artifacts.Select(x =>
-            $"<a class='req runbook-row' href='/runbooks/{Uri.EscapeDataString(x.ApplicationId)}'><span><b>{E(x.ApplicationId)}</b><small>Generated <time class='local-datetime' datetime='{E(x.LastUpdatedUtc.ToString("O"))}'>{E(x.LastUpdatedUtc.ToString("u"))}</time></small></span><span class='runbook-open'>Open Runbook</span><i class='ok'>✓</i></a>"));
+            $"<a class='req runbook-row' href='/runbooks/{Uri.EscapeDataString(x.ApplicationId)}'><span><b>{E(x.ApplicationId)}</b><small>Version {x.CurrentVersion} · updated <time class='local-datetime' datetime='{E(x.LastUpdatedUtc.ToString("O"))}'>{E(x.LastUpdatedUtc.ToString("u"))}</time></small></span><span class='runbook-open'>Open Runbook</span><i class='ok'>✓</i></a>"));
 
     string content =
-        "<section class='page-head'><div><p>Automatically generated operational artifacts from authenticated application contracts.</p></div></section>" +
+        "<section class='page-head'><div><p>Operational runbooks generated from authenticated application contracts. Authorized operators can edit them; every content change is retained as an immutable version.</p></div></section>" +
         "<section class='panel'><div class='reqs'>" + rows + "</div></section>";
 
     return Html(ConfigurationShell.Render("Configuration Runbooks", content, "runbooks"));
@@ -607,10 +607,95 @@ app.MapGet("/runbooks/{applicationId}", async (
 
     string? markdown = await runbooks.ReadAsync(applicationId, ct);
     if (markdown is null) return Results.NotFound();
+
+    IReadOnlyList<RunbookVersion> versions = await runbooks.ListVersionsAsync(applicationId, ct);
+    int currentVersion = versions.Select(x => x.Version).DefaultIfEmpty(0).Max();
+    bool canManage = Has(context, "Configuration.Manage");
+    string history = versions.Count == 0
+        ? "<div class='empty'>No version history yet. The next generated or edited change will establish version 1.</div>"
+        : string.Join("", versions.Select(v =>
+            $"<div class='runbook-version'><span><b>v{v.Version}</b><small>{E(v.Source)} · {E(v.Author)} · <time class='local-datetime' datetime='{E(v.CreatedAtUtc.ToString("O"))}'>{E(v.CreatedAtUtc.ToString("u"))}</time>{(string.IsNullOrWhiteSpace(v.Note) ? "" : " · " + E(v.Note))}</small></span><span class='runbook-version-actions'><a href='/runbooks/{Uri.EscapeDataString(applicationId)}/versions/{v.Version}'>View</a>{(canManage && v.Version != currentVersion ? $"<form method='post' action='/runbooks/{Uri.EscapeDataString(applicationId)}/versions/{v.Version}/restore'><button type='submit'>Restore</button></form>" : "")}</span></div>"));
+
+    string editor = canManage
+        ? $"<section class='panel runbook-editor'><h2>Edit Runbook</h2><form method='post' action='/runbooks/{Uri.EscapeDataString(applicationId)}/edit'><textarea name='markdown' spellcheck='false'>{E(markdown)}</textarea><div class='runbook-editor-actions'><input name='note' maxlength='300' placeholder='Change note (optional)'><button class='primary' type='submit'>Save New Version</button></div></form></section>"
+        : string.Empty;
+
+    string css = """
+.runbook-layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(310px,.65fr);gap:14px;align-items:start}
+.runbook-preview pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--starship-white)}
+.runbook-editor textarea{width:100%;min-height:52vh;resize:vertical;background:#02080d;color:var(--starship-white);border:1px solid var(--line);border-radius:8px;padding:12px;font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace}
+.runbook-editor-actions{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:10px}.runbook-editor-actions input{background:#071722;color:var(--starship-white);border:1px solid var(--line);border-radius:8px;padding:10px}
+.runbook-version{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line-soft)}.runbook-version small{display:block;color:var(--muted);margin-top:3px}.runbook-version-actions{display:flex;gap:7px;align-items:center}.runbook-version-actions form{margin:0}.runbook-version-actions a,.runbook-version-actions button{border:1px solid var(--line);border-radius:7px;background:#071722;color:var(--starship-white);padding:7px 9px;cursor:pointer}
+@media(max-width:1100px){.runbook-layout{grid-template-columns:1fr}}
+""";
+
     string content =
-        "<section class='page-head'><div><p>Generated operational recovery and commissioning guidance.</p></div></section>" +
-        "<section class='panel' style='padding:16px'><pre style='white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--starship-white)'>" + E(markdown) + "</pre></section>";
+        "<style>" + css + "</style>" +
+        $"<section class='page-head'><div><p>Operational recovery and commissioning guidance. Current version: <b>v{currentVersion}</b>.</p></div></section>" +
+        "<section class='runbook-layout'><div>" +
+        editor +
+        "<section class='panel runbook-preview' style='padding:16px'><h2>Current Runbook</h2><pre>" + E(markdown) + "</pre></section>" +
+        "</div><section class='panel'><h2>Version History</h2><div class='muted'>Generated, edited and restored versions are retained. Restoring creates a new version; history is never deleted.</div>" + history + "</section></section>";
+
     return Html(ConfigurationShell.Render(applicationId + " Runbook", content, "runbooks"));
+});
+
+app.MapPost("/runbooks/{applicationId}/edit", async (
+    HttpContext context,
+    string applicationId,
+    RunbookArtifactStore runbooks,
+    CancellationToken ct) =>
+{
+    if (!Has(context, "Configuration.Manage")) return Forbidden();
+    IFormCollection form = await context.Request.ReadFormAsync(ct);
+    string markdown = form["markdown"].ToString();
+    string note = form["note"].ToString();
+    if (string.IsNullOrWhiteSpace(markdown))
+        return Results.BadRequest(new { error = "Runbook content cannot be empty." });
+
+    string author = context.Items.TryGetValue("SuiteIdentity", out object? identityValue) && identityValue is SuiteIdentity identity
+        ? identity.DisplayName
+        : "unknown";
+    await runbooks.SaveEditAsync(applicationId, markdown, author, note, ct);
+    return Results.Redirect("/runbooks/" + Uri.EscapeDataString(applicationId));
+});
+
+app.MapGet("/runbooks/{applicationId}/versions/{version:int}", async (
+    HttpContext context,
+    string applicationId,
+    int version,
+    RunbookArtifactStore runbooks,
+    CancellationToken ct) =>
+{
+    if (!Has(context, "Configuration.View")) return Forbidden();
+
+    string? markdown = await runbooks.ReadVersionAsync(applicationId, version, ct);
+    if (markdown is null) return Results.NotFound();
+    RunbookVersion? metadata = (await runbooks.ListVersionsAsync(applicationId, ct)).FirstOrDefault(x => x.Version == version);
+    string detail = metadata is null
+        ? $"Version {version}"
+        : $"v{metadata.Version} · {E(metadata.Source)} · {E(metadata.Author)} · {E(metadata.CreatedAtUtc.ToString("u"))}{(string.IsNullOrWhiteSpace(metadata.Note) ? "" : " · " + E(metadata.Note))}";
+    string content =
+        $"<section class='page-head'><div><p>{detail}</p></div><a class='primary' href='/runbooks/{Uri.EscapeDataString(applicationId)}'>Back to Current</a></section>" +
+        "<section class='panel' style='padding:16px'><pre style='white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--starship-white)'>" + E(markdown) + "</pre></section>";
+    return Html(ConfigurationShell.Render(applicationId + " Runbook v" + version, content, "runbooks"));
+});
+
+app.MapPost("/runbooks/{applicationId}/versions/{version:int}/restore", async (
+    HttpContext context,
+    string applicationId,
+    int version,
+    RunbookArtifactStore runbooks,
+    CancellationToken ct) =>
+{
+    if (!Has(context, "Configuration.Manage")) return Forbidden();
+
+    string author = context.Items.TryGetValue("SuiteIdentity", out object? identityValue) && identityValue is SuiteIdentity identity
+        ? identity.DisplayName
+        : "unknown";
+    RunbookArtifact? restored = await runbooks.RestoreAsync(applicationId, version, author, ct);
+    if (restored is null) return Results.NotFound();
+    return Results.Redirect("/runbooks/" + Uri.EscapeDataString(applicationId));
 });
 
 app.MapGet("/api/report/{applicationId}", async (string applicationId, IConfigurationContractStore store, ConfigurationEvaluator evaluator, CommissioningReportRenderer renderer, CancellationToken ct) =>
