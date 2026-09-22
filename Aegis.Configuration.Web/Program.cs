@@ -553,130 +553,7 @@ app.MapGet("/contracts/raw", async (
 });
 
 app.MapGet("/api/contracts", async (IConfigurationContractStore store, CancellationToken ct) => Results.Ok(await store.LoadAllAsync(ct)));
-app.MapGet("/registration-lifecycle", async (
-    HttpContext context,
-    LifecycleRegistrationAuthority authority,
-    CancellationToken ct) =>
-{
-    if (!Has(context, "Configuration.View")) return Forbidden();
-
-    IReadOnlyList<LifecycleRegistrationRecord> records = await authority.ListAllAsync(ct);
-    LifecycleFlowSnapshot flowSnapshot = LifecycleFlowSnapshotBuilder.Build(records, 250);
-    int registered = records.Count(x => x.State == LifecycleRegistrationState.Registered);
-    int pending = records.Count(x => x.State is LifecycleRegistrationState.Pending or LifecycleRegistrationState.Approved);
-    int recovery = records.Count(x => x.State is LifecycleRegistrationState.RecoveryPending or LifecycleRegistrationState.RecoveryApproved);
-    int attention = records.Count(x => x.State is LifecycleRegistrationState.IdentityConflict or LifecycleRegistrationState.Revoked or LifecycleRegistrationState.Rejected);
-
-    string rows = records.Count == 0
-        ? "<tr><td colspan='4' class='empty'>No registration lifecycle records are currently available.</td></tr>"
-        : string.Join("", records.OrderBy(x => x.ApplicationId).Select(x =>
-        {
-            string id = Uri.EscapeDataString(x.RegistrationId);
-            string actions = x.State switch
-            {
-                LifecycleRegistrationState.Pending or LifecycleRegistrationState.RecoveryPending =>
-                    $"<button class='row-action approve' data-registration-action='approve' data-registration-id='{id}'>Approve</button>" +
-                    $"<button class='row-action danger' data-registration-action='reject' data-registration-id='{id}'>Reject</button>",
-
-                LifecycleRegistrationState.Registered =>
-                    $"<button class='row-action danger' data-registration-action='revoke' data-registration-id='{id}'>Revoke</button>",
-
-                LifecycleRegistrationState.Rejected or LifecycleRegistrationState.Revoked =>
-                    $"<button class='row-action danger' data-registration-action='purge' data-registration-id='{id}'>Purge</button>",
-
-                LifecycleRegistrationState.IdentityConflict =>
-                    $"<button class='row-action approve' data-registration-action='conflict/retain-existing' data-registration-id='{id}'>Retain Existing</button>" +
-                    $"<button class='row-action danger' data-registration-action='conflict/replace-with-incoming' data-registration-id='{id}'>Use Incoming</button>",
-
-                _ => "<span class='muted'>No operator action</span>"
-            };
-
-            return $"<tr><td><div style='display:flex;align-items:center;gap:9px'>{RegistrationIcon(x)}<span><b>{E(x.ApplicationId)}</b><small class='registration-id'>Registration ID: <code>{E(x.RegistrationId)}</code> <button type='button' class='copy-registration-id' data-copy-registration-id='{E(x.RegistrationId)}' title='Copy Registration ID'>Copy</button></small><small class='registration-id'>Installation ID: <code>{E(x.InstallationId)}</code> <button type='button' class='copy-installation-id' data-copy-installation-id='{E(x.InstallationId)}' title='Copy Installation ID'>Copy</button></small></span></div></td><td>{E(x.InstanceId)}</td><td><span class='status {(x.State == LifecycleRegistrationState.Registered ? "good" : "warn")}'>{E(x.State.ToString())}</span></td><td><div class='row-actions'>{actions}</div></td></tr>";
-        }));
-
-    string flowCards = flowSnapshot.Journeys.Count == 0
-        ? "<div class='empty'>No registration lifecycle journeys are currently available.</div>"
-        : string.Join("", flowSnapshot.Journeys.Select(journey =>
-        {
-            LifecycleFlowEventView[] journeyEvents = flowSnapshot.Events
-                .Where(x => x.RegistrationId == journey.RegistrationId)
-                .OrderBy(x => x.AtUtc)
-                .ToArray();
-
-            string[] normalStages = ["Request", "Approval", "Claim", "Authenticate", "Publish", "Registered"];
-            string[] recoveryStages = ["Recovery", "Approval", "Claim", "Authenticate", "Publish", "Registered"];
-            string[] stages = journey.State.StartsWith("Recovery", StringComparison.OrdinalIgnoreCase)
-                ? recoveryStages
-                : normalStages;
-
-            HashSet<string> completedStages = journeyEvents
-                .Where(x => x.Outcome is "Succeeded" or "Resolved")
-                .Select(x => x.Stage)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            HashSet<string> failedStages = journeyEvents
-                .Where(x => x.Outcome == "Failed")
-                .Select(x => x.Stage)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            string stageMarkup = string.Join("", stages.Select(stage =>
-            {
-                bool registeredCompleted =
-                    stage.Equals("Registered", StringComparison.OrdinalIgnoreCase) &&
-                    journey.State.Equals("Registered", StringComparison.OrdinalIgnoreCase);
-
-                string css = failedStages.Contains(stage)
-                    ? "failed"
-                    : completedStages.Contains(stage) || registeredCompleted
-                        ? "done"
-                        : stage.Equals(journey.CurrentStage, StringComparison.OrdinalIgnoreCase) ||
-                          (journey.CurrentStage == "Recovery Approval" && stage == "Approval") ||
-                          (journey.CurrentStage == "Recovery Claim" && stage == "Claim")
-                            ? "current"
-                            : "waiting";
-
-                return $"<div class='lifecycle-stage {css}'><i></i><span>{E(stage)}</span></div>";
-            }));
-
-            string terminal = journey.State switch
-            {
-                "Revoked" => "<div class='lifecycle-terminal failed'><i></i><span>Revoked</span></div>",
-                "Rejected" => "<div class='lifecycle-terminal failed'><i></i><span>Rejected</span></div>",
-                "IdentityConflict" => "<div class='lifecycle-terminal failed'><i></i><span>Identity Conflict</span></div>",
-                _ => string.Empty
-            };
-
-            string operatorStatus = journey.State switch
-            {
-                "Revoked" => "Revoked",
-                "Rejected" => "Rejected",
-                "IdentityConflict" => "Conflict",
-                "Registered" => "Complete",
-                _ => journey.CurrentStage
-            };
-
-            return $"<article class='lifecycle-journey health-{E(journey.Health.ToLowerInvariant())}'><header><div>{RegistrationIcon(records.First(x => x.RegistrationId == journey.RegistrationId))}<span><b>{E(journey.ApplicationId)}</b><small>{E(journey.InstanceId)} · {E(journey.State)}</small><small class='registration-id'>Registration ID: <code>{E(journey.RegistrationId)}</code> <button type='button' class='copy-registration-id' data-copy-registration-id='{E(journey.RegistrationId)}' title='Copy Registration ID'>Copy</button></small><small class='registration-id'>Installation ID: <code>{E(journey.InstallationId)}</code> <button type='button' class='copy-installation-id' data-copy-installation-id='{E(journey.InstallationId)}' title='Copy Installation ID'>Copy</button></small></span></div><strong>{E(operatorStatus)}</strong></header><div class='lifecycle-track'>{stageMarkup}{terminal}</div><footer><span>Current: <b>{E(journey.CurrentStage)}</b></span><span>Last action: <b>{E(journey.LastAction ?? "—")}</b></span><span>Time at stage: <b>{FormatLifecycleAge(journey.StageAgeSeconds)}</b></span></footer></article>";
-        }));
-
-    string lifecycleStyles =
-        "<style>" +
-        ".lifecycle-flow-panel{padding:14px 16px;margin-bottom:16px}.lifecycle-flow-panel>h2{margin:0 0 4px;color:var(--arctic-ice);font-size:16px}.lifecycle-flow-panel>p{margin:0 0 12px;color:var(--muted);font-size:12px}" +
-        ".lifecycle-flow-grid{display:grid;gap:10px}.lifecycle-journey{border:1px solid var(--line-soft);border-radius:9px;background:#020b13;padding:11px 12px}.lifecycle-journey header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.lifecycle-journey header>div{display:flex;align-items:center;gap:9px}.lifecycle-journey header span{display:flex;flex-direction:column}.lifecycle-journey header small{color:var(--muted);font-size:11px}.lifecycle-journey header strong{font-size:11px;text-transform:uppercase;letter-spacing:.06em}" +
-        ".lifecycle-track{display:flex;align-items:flex-start;gap:0;overflow-x:auto;padding:5px 0 8px}.lifecycle-stage,.lifecycle-terminal{position:relative;min-width:100px;display:flex;flex-direction:column;align-items:center;gap:5px;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase}.lifecycle-stage:not(:last-child)::after{content:'';position:absolute;top:8px;left:58%;width:84%;height:3px;background:#263746;z-index:0}.lifecycle-stage i,.lifecycle-terminal i{position:relative;z-index:2;width:18px;height:18px;border-radius:50%;background:#263746;border:3px solid #0a1720;box-shadow:0 0 0 1px #415466}.lifecycle-stage.done i{background:#56d68a;box-shadow:0 0 12px #56d68a}.lifecycle-stage.done::after{background:#56d68a}.lifecycle-stage.current i{background:#ffcc66;box-shadow:0 0 14px #ffcc66;animation:lifecyclePulse 1.25s infinite}.lifecycle-stage.failed i,.lifecycle-terminal.failed i{background:#ff5f4a;box-shadow:0 0 14px #ff5f4a}.lifecycle-stage.failed{color:#ff9b8e}.lifecycle-stage.current{color:#ffe1a3}.lifecycle-stage.done{color:#9ff0ba}.lifecycle-terminal{margin-left:8px}" +
-        ".registration-id{display:block;margin-top:3px;color:var(--muted);font-size:10px}.registration-id code{color:var(--arctic-ice);font-size:10px;user-select:all}.copy-registration-id,.copy-installation-id{margin-left:5px;padding:2px 6px;border:1px solid var(--line-soft);border-radius:4px;background:#092033;color:var(--arctic-ice);font-size:9px;cursor:pointer}.copy-registration-id:hover,.copy-installation-id:hover{border-color:#ffcc66;color:#ffcc66}" +
-        ".lifecycle-journey footer{display:flex;flex-wrap:wrap;gap:8px 20px;border-top:1px solid var(--line-soft);padding-top:8px;color:var(--muted);font-size:10px}.health-failed{border-color:#8a372c}.health-stalled{border-color:#9b6c20}.health-slow{border-color:#7b6525}@keyframes lifecyclePulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.18);opacity:.72}}" +
-        "</style>";
-
-    string content =
-        lifecycleStyles +
-        "<section class='page-head'><div><p>Authoritative durable registration state for the control plane.</p></div></section>" +
-        $"<section id='lifecycleMetrics' class='metrics'><a class='metric' href='/registration-lifecycle?state=Registered'><span>R</span><b>{registered}</b><small>Registered</small></a><a class='metric{(pending > 0 ? " issue-card" : "")}' href='/registration-lifecycle?state=Pending'><span>P</span><b>{pending}</b><small>Pending</small></a><a class='metric{(recovery > 0 ? " issue-card" : "")}' href='/registration-lifecycle?state=Recovery'><span>C</span><b>{recovery}</b><small>Recovery</small></a><a class='metric{(attention > 0 ? " issue-card" : "")}' href='/registration-lifecycle?state=Attention'><span>!</span><b>{attention}</b><small>Attention</small></a><a class='metric' href='/registration-lifecycle'><span>Σ</span><b>{records.Count}</b><small>Total</small></a></section>" +
-        "<section id='lifecycleFlowPanel' class='panel lifecycle-flow-panel'><h2>Registration Flow</h2><p>Live lifecycle journeys. Gold indicates the current stage, green completed stages, and red a failed or terminal state.</p><div class='lifecycle-flow-grid'>" + flowCards + "</div></section>" +
-        "<section id='lifecycleTablePanel' class='panel table-panel'><table><thead><tr><th>Application</th><th>Instance</th><th>State</th><th>Actions</th></tr></thead><tbody>" + rows + "</tbody></table></section>" +
-        "<script>(function(){document.addEventListener('click',async e=>{const b=e.target.closest('[data-copy-registration-id],[data-copy-installation-id]');if(!b)return;e.preventDefault();e.stopPropagation();const value=b.dataset.copyRegistrationId||b.dataset.copyInstallationId;if(!value)return;const label=b.dataset.copyRegistrationId?'Registration ID':'Installation ID';try{await navigator.clipboard.writeText(value);const old=b.textContent;b.textContent='Copied';setTimeout(()=>b.textContent=old,1200);}catch{prompt(label,value);}});let refreshing=false;async function refreshLifecycle(){if(refreshing||document.hidden)return;if(document.querySelector('[data-registration-action]:disabled'))return;refreshing=true;try{const response=await fetch(location.href,{cache:'no-store',headers:{'X-Aegis-Partial-Refresh':'registration-lifecycle'}});if(!response.ok)return;const html=await response.text();const doc=new DOMParser().parseFromString(html,'text/html');for(const id of ['lifecycleMetrics','lifecycleFlowPanel','lifecycleTablePanel']){const current=document.getElementById(id),next=doc.getElementById(id);if(current&&next)current.innerHTML=next.innerHTML;}}catch{}finally{refreshing=false}}setInterval(refreshLifecycle,3000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshLifecycle()});})();</script>";
-
-    return Html(ConfigurationShell.Render("Registration Lifecycle", content, "registration"));
-});
+app.MapGet("/registration-lifecycle", () => Results.Redirect("https://operations.ffpja.org/registration/lifecycle", permanent: true));
 
 app.MapGet("/orphaned", async (
     HttpContext context,
@@ -867,7 +744,7 @@ static string RenderDashboard(List<(ApplicationConfigurationContract Contract, C
     string activity = rows.Count == 0 ? "<div class='empty'>No recent configuration events.</div>" : string.Join("", rows.OrderByDescending(x => x.Contract.LastRegisteredAtUtc).Take(4).Select(x => $"<div class='recent-event-row'><b>{E(x.Contract.DisplayName)}</b><span>Registered</span><time>{Registered(x.Contract.LastRegisteredAtUtc, "MMM dd yyyy hh:mm tt")}</time></div>"));
     string overviewCss = string.Empty;
     string intro = "All registered applications and their configuration status";
-    string content = $"<style>{SecretManagerStyles()}{overviewCss}</style><section class='page-head'><div><p>{intro}</p></div></section><section class='toolbar'><input id='search' placeholder='⌕  Search applications...'><select id='statusFilter'><option value=''>All Status</option><option>Configured</option><option>Not Configured</option></select><button onclick='location.reload()'>↻</button><button class='primary' onclick='document.getElementById(\"registrationInfoDialog\").showModal()'>ⓘ Application Registration</button></section><section class='metrics'><a class='metric' href='/'><span>▦</span><b>{rows.Count}</b><small>Total Applications</small></a><a class='metric green' href='/?status=Configured'><span>✓</span><b>{configured}</b><small>Configured</small></a><a class='metric{(rows.Count - configured > 0 ? " amber" : "")}' href='/?status=Not%20Configured'><span>!</span><b>{rows.Count - configured}</b><small>Not Configured</small></a><a class='metric{(orphanedContracts > 0 ? " amber" : "")}' href='/orphaned'><span>⚠</span><b>{orphanedContracts}</b><small>Orphaned Contracts</small></a><a class='metric' href='/contracts'><span>≡</span><b>{requirements}</b><small>Total Requirements</small></a></section><section class='workspace'><div><section class='panel table-panel'><table id='apps'><thead><tr><th>Application</th><th>Version</th><th>Site / Instance</th><th>Configuration</th><th>Secrets</th><th>Required</th><th>Optional</th><th>Last Updated</th><th></th></tr></thead><tbody>{tableRows}</tbody></table></section><section class='lower'><div class='panel recent-events'><h3>◴ Recent Logs</h3><div class='recent-event-head'><span>Application</span><span>Event</span><span>Time</span></div><div id='configurationRecentEvents'>{activity}</div></div><div class='panel'><h3>⌘ Quick Links</h3><div class='quick'><a href='/runbooks'>▤ <span><b>Configuration Runbooks</b><small>Commissioning and recovery guidance</small></span></a><a href='/contracts'>◇ <span><b>Application Contracts</b><small>Human-readable contract views</small></span></a><a href='/orphaned'>⚠ <span><b>Orphaned Contracts</b><small>Retired contracts with no active registration</small></span></a></div></div></section></div>{detail}</section><dialog id='registrationInfoDialog'><h2>Applications Register Automatically</h2><p>Applications publish their configuration requirements to System Configuration when they start. You do not manually add applications here.</p><p><b>Configuration Server</b><br><code id='configurationServerUrl'></code></p><p><b>Registration Endpoint</b><br><code id='registrationEndpointUrl'></code></p><p>Applications should normally configure <code>Aegis:Configuration:Url</code> with the Configuration Server address above.</p><p class='muted'>Normal applications authenticate directly with Configuration using their durable Common.Registration identity. Control-plane services use their restricted bootstrap identity. Secret values are never displayed here.</p><button onclick='this.closest(\"dialog\").close()'>Close</button></dialog>";
+    string content = $"<style>{SecretManagerStyles()}{overviewCss}</style><section class='page-head'><div><p>{intro}</p></div></section><section class='toolbar'><input id='search' placeholder='⌕  Search applications...'><select id='statusFilter'><option value=''>All Status</option><option>Configured</option><option>Not Configured</option></select><button onclick='location.reload()'>↻</button><button class='primary' onclick='document.getElementById(\"registrationInfoDialog\").showModal()'>ⓘ Application Registration</button></section><section class='workspace'><div><section class='panel table-panel'><table id='apps'><thead><tr><th>Application</th><th>Version</th><th>Site / Instance</th><th>Configuration</th><th>Secrets</th><th>Required</th><th>Optional</th><th>Last Updated</th><th></th></tr></thead><tbody>{tableRows}</tbody></table></section><section class='lower'><div class='panel recent-events'><h3>◴ Recent Logs</h3><div class='recent-event-head'><span>Application</span><span>Event</span><span>Time</span></div><div id='configurationRecentEvents'>{activity}</div></div><div class='panel'><h3>⌘ Quick Links</h3><div class='quick'><a href='/runbooks'>▤ <span><b>Configuration Runbooks</b><small>Commissioning and recovery guidance</small></span></a><a href='/contracts'>◇ <span><b>Application Contracts</b><small>Human-readable contract views</small></span></a><a href='/orphaned'>⚠ <span><b>Orphaned Contracts</b><small>Retired contracts with no active registration</small></span></a></div></div></section></div>{detail}</section><dialog id='registrationInfoDialog'><h2>Applications Register Automatically</h2><p>Applications publish their configuration requirements to System Configuration when they start. You do not manually add applications here.</p><p><b>Configuration Server</b><br><code id='configurationServerUrl'></code></p><p><b>Registration Endpoint</b><br><code id='registrationEndpointUrl'></code></p><p>Applications should normally configure <code>Aegis:Configuration:Url</code> with the Configuration Server address above.</p><p class='muted'>Normal applications authenticate directly with Configuration using their durable Common.Registration identity. Control-plane services use their restricted bootstrap identity. Secret values are never displayed here.</p><button onclick='this.closest(\"dialog\").close()'>Close</button></dialog>";
     return ConfigurationShell.Render("Applications", content, "applications");
 }
 
