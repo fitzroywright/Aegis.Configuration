@@ -753,8 +753,9 @@ static string Registered(DateTimeOffset? value, string format) => value.HasValue
 
 static string SiteInstance(ApplicationConfigurationContract contract)
 {
-    string[] values = [contract.SiteId, contract.InstanceId]
+    string[] values = new[] { contract.SiteId, contract.InstanceId }
         .Where(x => !string.IsNullOrWhiteSpace(x) && x != "—")
+        .Select(x => x!)
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .ToArray();
     return values.Length == 0 ? "—" : string.Join(" · ", values.Select(E));
