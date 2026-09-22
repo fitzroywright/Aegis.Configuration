@@ -38,8 +38,9 @@ public sealed class DirectoryContractStore(string directoryPath) : IConfiguratio
             // never expose it as a second application or allow it to become configuration authority.
             if (IsRetiredPublisher(contract.ApplicationId)) continue;
 
-            ContractValidationResult result = validator.Validate(contract);
-            if (!result.IsValid) throw new InvalidDataException($"Configuration contract '{Path.GetFileName(path)}' is invalid: {string.Join(" ", result.Errors)}");
+            // Existing stored contracts remain readable across schema migrations.
+            // Contract validation is enforced on RegisterAsync; reads must not take the operator UI down
+            // merely because an older application has not republished the latest contract shape yet.
             contracts.Add(contract);
         }
         return contracts;
