@@ -804,7 +804,7 @@ static string RenderRuntimeEnvironment(RuntimeEnvironmentSnapshot? environment)
 
 static string RenderRequirement(RequirementEvaluation r)
 {
-    string value = r.Sensitive ? "Protected / not displayed" : E(r.SafeDisplayValue);
+    string value = r.Sensitive ? "Protected / not displayed" : E(r.DisplayValue);
     string source = string.IsNullOrWhiteSpace(r.EffectiveSource) ? "Source: unresolved" : $"Source: {E(r.EffectiveSource)}";
     string defaultText = r.HasDefault && !r.Sensitive ? $" · Default: {E(r.DefaultValue)}" : string.Empty;
     string condition = string.IsNullOrWhiteSpace(r.ConditionalOn) ? string.Empty : $" · When: {E(r.ConditionalOn)}";
