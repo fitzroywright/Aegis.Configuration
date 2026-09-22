@@ -86,6 +86,15 @@ internal sealed class ConfigurationRegistrationPublisher(
             ["runbookReference"] = "docs/RUNBOOK.md",
             ["siteId"] = NullIfBlank(configuration["Site:Id"]),
             ["instanceId"] = instanceId,
+            ["diagnostics"] = new JsonObject
+            {
+                ["baseUrl"] = NullIfBlank(configuration["Aegis:PublicUrl"]),
+                ["healthPath"] = "/health",
+                ["supportsRemoteDiagnostics"] = false,
+                ["supportsOperationalTelemetry"] = true,
+                ["authenticationScheme"] = "None",
+                ["supportedLevels"] = new JsonArray()
+            },
             ["runtimeEnvironment"] = new JsonObject
             {
                 ["machineName"] = Environment.MachineName,
@@ -99,6 +108,11 @@ internal sealed class ConfigurationRegistrationPublisher(
             },
             ["requirements"] = new JsonArray
             {
+                Requirement(
+                    "public-url",
+                    "Public Service URL",
+                    "Aegis:PublicUrl",
+                    "Canonical externally reachable Configuration URL used by Control Plane health monitoring."),
                 Requirement(
                     "operations-url",
                     "Operations URL",
