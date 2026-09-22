@@ -348,11 +348,14 @@ app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationCo
             return Results.Unauthorized();
         }
 
+        string runtimeSessionId = context.Request.Headers["X-Aegis-Runtime-Session-Id"].ToString().Trim();
+
         LifecycleRegistrationRecord? authenticated = await lifecycleAuthority.AuthenticateAsync(
             applicationId,
             instanceId,
             installationId,
             credential,
+            runtimeSessionId,
             attemptId,
             ct);
 
