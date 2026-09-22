@@ -110,7 +110,7 @@ internal static class ApplicationPresentation
     {
         string state = r.State.ToString();
         string css = r.State is ConfigurationState.Configured or ConfigurationState.Default ? "good" : "warn";
-        string value = r.Sensitive ? "Protected / not displayed" : E(r.SafeDisplayValue ?? r.DefaultValue);
+        string value = r.Sensitive ? "Protected / not displayed" : E(r.DisplayValue ?? r.DefaultValue);
         string commissioning = string.IsNullOrWhiteSpace(r.VerificationStatus) ? r.Message : r.VerificationStatus;
         return $"<tr><td><b>{E(r.DisplayName)}</b><small>{E(r.Purpose)}</small></td><td><span class='status {css}'>{E(state)}</span></td><td><small>{E(commissioning)}</small></td><td>{E(r.EffectiveSource)}</td><td><code>{value}</code></td></tr>";
     }
@@ -129,6 +129,7 @@ internal static class ApplicationPresentation
         string[] providers = evaluation.Requirements
             .Select(x => x.EffectiveSource)
             .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -144,7 +145,7 @@ internal static class ApplicationPresentation
     {
         if (d is null) return "<div class='empty'>This application did not declare a diagnostics capability.</div>";
         string levels = d.SupportedLevels is { Count: > 0 } ? string.Join(", ", d.SupportedLevels) : "1, 2, 3, 4, 5";
-        return $"<div class='facts presentation-facts'><div><small>BASE URL KEY</small><b>{E(d.BaseUrlConfigurationKey)}</b></div><div><small>HEALTH</small><b>{E(d.HealthPath)}</b></div><div><small>REMOTE DIAGNOSTICS</small><b>{YesNo(d.SupportsRemoteDiagnostics)}</b></div><div><small>OPERATIONAL TELEMETRY</small><b>{YesNo(d.SupportsOperationalTelemetry)}</b></div><div><small>AUTHENTICATION</small><b>{E(d.AuthenticationScheme)}</b></div><div><small>SUPPORTED LEVELS</small><b>{E(levels)}</b></div></div>";
+        return $"<div class='facts presentation-facts'><div><small>BASE URL</small><b>{E(d.BaseUrl)}</b></div><div><small>HEALTH</small><b>{E(d.HealthPath)}</b></div><div><small>REMOTE DIAGNOSTICS</small><b>{YesNo(d.SupportsRemoteDiagnostics)}</b></div><div><small>OPERATIONAL TELEMETRY</small><b>{YesNo(d.SupportsOperationalTelemetry)}</b></div><div><small>AUTHENTICATION</small><b>{E(d.AuthenticationScheme)}</b></div><div><small>SUPPORTED LEVELS</small><b>{E(levels)}</b></div></div>";
     }
 
     private static string RenderRuntime(RuntimeEnvironmentSnapshot? r)
