@@ -34,7 +34,7 @@ public sealed class ConfigurationEvaluator
                 state,
                 message,
                 requirement.Purpose,
-                requirement.Sensitive ? null : requirement.SafeDisplayValue,
+                requirement.Sensitive ? null : requirement.DisplayValue,
                 requirement.Example,
                 requirement.Sensitive,
                 explicitlyConfigured,
