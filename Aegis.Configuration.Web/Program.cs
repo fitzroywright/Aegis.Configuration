@@ -35,6 +35,26 @@ string contractDirectory = builder.Configuration["AegisConfiguration:ContractDir
 string runbookDirectory = builder.Configuration["AegisConfiguration:RunbookDirectory"] ?? "/var/lib/aegis/configuration/runbooks";
 string instructionDirectory = builder.Configuration["AegisConfiguration:InstructionDirectory"] ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "instruction-packs"));
 builder.Services.AddCommonSecrets(builder.Configuration);
+builder.Services.AddCommonDiagnostics();
+string diagnosticLevelStorePath = builder.Configuration["Aegis:Diagnostics:StorePath"]?.Trim()
+    ?? Path.Combine(builder.Environment.ContentRootPath, "data", "diagnostic-level", "configuration.db");
+builder.Services.AddSingleton(new DiagnosticLevelExecutionOptions
+{
+    Application = "Aegis.Configuration",
+    Component = "Web",
+    InstanceId = operationsLogInstanceId,
+    CatalogVersion = "1"
+});
+builder.Services.AddSingleton(new DiagnosticLevelStoreOptions { Path = diagnosticLevelStorePath });
+builder.Services.AddCommonSecretsDiagnostics();
+builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web.ConfigurationPublicUrlDiagnosticLevelTest>();
+builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web.ConfigurationOperationsUrlDiagnosticLevelTest>();
+builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web.ConfigurationRegistrationDatabaseConfigDiagnosticLevelTest>();
+builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web.ConfigurationContractDirectoryDiagnosticLevelTest>();
+builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web.ConfigurationContractStoreReadDiagnosticLevelTest>();
+builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web.ConfigurationRegistrationAuthorityReadDiagnosticLevelTest>();
+builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web.ConfigurationRegistrationConsistencyDiagnosticLevelTest>();
+builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web.ConfigurationRegistrationAuditDiagnosticLevelTest>();
 builder.Services.AddSuiteSecurity();
 builder.Services.AddHttpClient("operations-registration", client => client.Timeout = TimeSpan.FromSeconds(10));
 builder.Services.AddHttpClient("registration-lifecycle-telemetry", client => client.Timeout = TimeSpan.FromSeconds(5));
@@ -57,6 +77,7 @@ builder.Services.AddSingleton<CommissioningReportRenderer>();
 builder.Services.AddSingleton(new RunbookArtifactStore(runbookDirectory));
 builder.Services.AddSingleton<ContractValidator>();
 WebApplication app = builder.Build();
+app.MapDiagnosticLevelRuntime();
 app.UseForwardedHeaders(new ForwardedHeadersOptions
 {
     ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto

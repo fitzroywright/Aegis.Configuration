@@ -72,6 +72,9 @@ internal sealed class ConfigurationRegistrationPublisher(
 
     private JsonObject BuildContract(string instanceId)
     {
+        string? diagnosticSecretName = NullIfBlank(configuration["Aegis:Diagnostics:RequestCredentialSecretName"]);
+        bool remoteDiagnosticsConfigured = !string.IsNullOrWhiteSpace(diagnosticSecretName);
+
         return new JsonObject
         {
             ["applicationId"] = ApplicationId,
@@ -90,10 +93,13 @@ internal sealed class ConfigurationRegistrationPublisher(
             {
                 ["baseUrl"] = NullIfBlank(configuration["Aegis:PublicUrl"]),
                 ["healthPath"] = "/health",
-                ["supportsRemoteDiagnostics"] = false,
+                ["diagnosticsRunPath"] = "/api/engineering/diagnostics/diagnostic-level/run",
+                ["diagnosticsRunsPath"] = "/api/engineering/diagnostics/diagnostic-level/history",
+                ["supportsRemoteDiagnostics"] = remoteDiagnosticsConfigured,
                 ["supportsOperationalTelemetry"] = true,
-                ["authenticationScheme"] = "None",
-                ["supportedLevels"] = new JsonArray()
+                ["authenticationScheme"] = "DiagnosticLevel-HMAC-SHA256",
+                ["secretName"] = diagnosticSecretName,
+                ["supportedLevels"] = new JsonArray(1, 2, 3, 4, 5)
             },
             ["runtimeEnvironment"] = new JsonObject
             {
