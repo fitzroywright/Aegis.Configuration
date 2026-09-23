@@ -35,6 +35,23 @@ string contractDirectory = builder.Configuration["AegisConfiguration:ContractDir
 string runbookDirectory = builder.Configuration["AegisConfiguration:RunbookDirectory"] ?? "/var/lib/aegis/configuration/runbooks";
 string instructionDirectory = builder.Configuration["AegisConfiguration:InstructionDirectory"] ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "instruction-packs"));
 builder.Services.AddCommonSecrets(builder.Configuration);
+string levelXStorePath = builder.Configuration["Aegis:Diagnostics:StorePath"]?.Trim()
+    ?? Path.Combine(builder.Environment.ContentRootPath, "data", "levelx", "configuration.db");
+builder.Services.AddSingleton(new LevelXExecutionOptions
+{
+    Application = "Aegis.Configuration",
+    Component = "Web",
+    InstanceId = operationsLogInstanceId,
+    CatalogVersion = "1"
+});
+builder.Services.AddSingleton(new LevelXStoreOptions { Path = levelXStorePath });
+builder.Services.AddCommonSecretsDiagnostics();
+builder.Services.AddSingleton<ILevelXLocalTest, Aegis.Configuration.Web.ConfigurationPublicUrlLevelXTest>();
+builder.Services.AddSingleton<ILevelXLocalTest, Aegis.Configuration.Web.ConfigurationOperationsUrlLevelXTest>();
+builder.Services.AddSingleton<ILevelXLocalTest, Aegis.Configuration.Web.ConfigurationRegistrationDatabaseConfigLevelXTest>();
+builder.Services.AddSingleton<ILevelXLocalTest, Aegis.Configuration.Web.ConfigurationContractDirectoryLevelXTest>();
+builder.Services.AddSingleton<ILevelXLocalTest, Aegis.Configuration.Web.ConfigurationContractStoreReadLevelXTest>();
+builder.Services.AddSingleton<ILevelXLocalTest, Aegis.Configuration.Web.ConfigurationRegistrationAuthorityReadLevelXTest>();
 builder.Services.AddSuiteSecurity();
 builder.Services.AddHttpClient("operations-registration", client => client.Timeout = TimeSpan.FromSeconds(10));
 builder.Services.AddHttpClient("registration-lifecycle-telemetry", client => client.Timeout = TimeSpan.FromSeconds(5));
@@ -57,6 +74,7 @@ builder.Services.AddSingleton<CommissioningReportRenderer>();
 builder.Services.AddSingleton(new RunbookArtifactStore(runbookDirectory));
 builder.Services.AddSingleton<ContractValidator>();
 WebApplication app = builder.Build();
+app.MapLevelXRuntime();
 app.UseForwardedHeaders(new ForwardedHeadersOptions
 {
     ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
