@@ -90,10 +90,13 @@ internal sealed class ConfigurationRegistrationPublisher(
             {
                 ["baseUrl"] = NullIfBlank(configuration["Aegis:PublicUrl"]),
                 ["healthPath"] = "/health",
-                ["supportsRemoteDiagnostics"] = false,
+                ["diagnosticsRunPath"] = "/api/engineering/diagnostics/levelx/run",
+                ["diagnosticsRunsPath"] = "/api/engineering/diagnostics/levelx/history",
+                ["supportsRemoteDiagnostics"] = true,
                 ["supportsOperationalTelemetry"] = true,
-                ["authenticationScheme"] = "None",
-                ["supportedLevels"] = new JsonArray()
+                ["authenticationScheme"] = "LevelX-HMAC-SHA256",
+                ["secretName"] = NullIfBlank(configuration["Aegis:Diagnostics:RequestCredentialSecretName"]),
+                ["supportedLevels"] = new JsonArray(1, 2, 3, 4, 5)
             },
             ["runtimeEnvironment"] = new JsonObject
             {
