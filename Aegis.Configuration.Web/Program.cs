@@ -35,7 +35,7 @@ string contractDirectory = builder.Configuration["AegisConfiguration:ContractDir
 string runbookDirectory = builder.Configuration["AegisConfiguration:RunbookDirectory"] ?? "/var/lib/aegis/configuration/runbooks";
 string instructionDirectory = builder.Configuration["AegisConfiguration:InstructionDirectory"] ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "instruction-packs"));
 builder.Services.AddCommonSecrets(builder.Configuration);
-string levelXStorePath = builder.Configuration["Aegis:Diagnostics:StorePath"]?.Trim()
+string diagnosticLevelStorePath = builder.Configuration["Aegis:Diagnostics:StorePath"]?.Trim()
     ?? Path.Combine(builder.Environment.ContentRootPath, "data", "diagnostic-level", "configuration.db");
 builder.Services.AddSingleton(new DiagnosticLevelExecutionOptions
 {
@@ -44,7 +44,7 @@ builder.Services.AddSingleton(new DiagnosticLevelExecutionOptions
     InstanceId = operationsLogInstanceId,
     CatalogVersion = "1"
 });
-builder.Services.AddSingleton(new DiagnosticLevelStoreOptions { Path = levelXStorePath });
+builder.Services.AddSingleton(new DiagnosticLevelStoreOptions { Path = diagnosticLevelStorePath });
 builder.Services.AddCommonSecretsDiagnostics();
 builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web.ConfigurationPublicUrlDiagnosticLevelTest>();
 builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web.ConfigurationOperationsUrlDiagnosticLevelTest>();
