@@ -53,6 +53,8 @@ builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web
 builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web.ConfigurationContractDirectoryDiagnosticLevelTest>();
 builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web.ConfigurationContractStoreReadDiagnosticLevelTest>();
 builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web.ConfigurationRegistrationAuthorityReadDiagnosticLevelTest>();
+builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web.ConfigurationRegistrationConsistencyDiagnosticLevelTest>();
+builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web.ConfigurationRegistrationAuditDiagnosticLevelTest>();
 builder.Services.AddSuiteSecurity();
 builder.Services.AddHttpClient("operations-registration", client => client.Timeout = TimeSpan.FromSeconds(10));
 builder.Services.AddHttpClient("registration-lifecycle-telemetry", client => client.Timeout = TimeSpan.FromSeconds(5));
