@@ -42,7 +42,7 @@ internal static class ConfigurationShell
     <a class="blue" href="https://operations.ffpja.org">Operations</a>
     <a class="gray" href="https://operations.ffpja.org/registration">Registration</a>
     <a class="gold module-active" href="/">Configuration</a>
-    <a class="salmon" href="https://diagnostics.ffpja.org">Diagnostics</a>
+    <a class="salmon" href="https://operations.ffpja.org/handoff/diagnostics">Diagnostics</a>
   </div>
   <a class="lcars-logout" href="/auth/logout">Logout</a>
 </header>
