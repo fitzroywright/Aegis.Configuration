@@ -206,9 +206,15 @@ app.MapGet("/api/registration/flow", async (
     HttpContext context,
     int? limit,
     LifecycleRegistrationAuthority authority,
+    OperationsRegistrationAuthority operationsAuthority,
     CancellationToken ct) =>
 {
-    if (!Has(context, "Configuration.View")) return Forbidden();
+    bool interactiveAuthorized = Has(context, "Configuration.View");
+    bool machineAuthorized = interactiveAuthorized
+        ? false
+        : await operationsAuthority.ValidateOperationsAsync(context.Request, ct);
+
+    if (!interactiveAuthorized && !machineAuthorized) return Forbidden();
 
     IReadOnlyList<LifecycleRegistrationRecord> records =
         await authority.ListAllAsync(ct);
