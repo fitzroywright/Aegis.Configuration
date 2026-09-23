@@ -148,3 +148,87 @@ internal sealed class ConfigurationRegistrationAuthorityReadDiagnosticLevelTest(
         }
     }
 }
+
+
+internal sealed class ConfigurationRegistrationConsistencyDiagnosticLevelTest(LifecycleRegistrationAuthority authority) : IDiagnosticLevelLocalTest
+{
+    public string TestId => "AEGIS.CONFIGURATION.L2.REGISTRATION.CONSISTENCY";
+    public string Name => "Registration authority identities internally consistent";
+    public string Owner => "Aegis.Configuration";
+    public EngineeringDiagnosticLevel Level => EngineeringDiagnosticLevel.Level2Repair;
+    public bool IsDestructive => false;
+
+    public async Task<EngineeringDiagnosticCheckResult> RunAsync(CancellationToken cancellationToken)
+    {
+        IReadOnlyList<LifecycleRegistrationRecord> records = await authority.ListAsync(cancellationToken).ConfigureAwait(false);
+        List<string> issues = [];
+
+        string[] duplicateRegistrationIds = records
+            .Where(x => !string.IsNullOrWhiteSpace(x.RegistrationId))
+            .GroupBy(x => x.RegistrationId, StringComparer.OrdinalIgnoreCase)
+            .Where(x => x.Count() > 1)
+            .Select(x => x.Key)
+            .ToArray();
+        if (duplicateRegistrationIds.Length > 0)
+            issues.Add($"DuplicateRegistrationIds={duplicateRegistrationIds.Length}");
+
+        string[] duplicateActiveIdentities = records
+            .Where(x => x.State != LifecycleRegistrationState.Purged)
+            .GroupBy(x => $"{x.ApplicationId}\u001f{x.InstanceId}", StringComparer.OrdinalIgnoreCase)
+            .Where(x => x.Count() > 1)
+            .Select(x => x.Key.Replace("\u001f", "/", StringComparison.Ordinal))
+            .ToArray();
+        if (duplicateActiveIdentities.Length > 0)
+            issues.Add($"DuplicateActiveIdentities={duplicateActiveIdentities.Length}");
+
+        if (records.Any(x =>
+                string.IsNullOrWhiteSpace(x.ApplicationId) ||
+                string.IsNullOrWhiteSpace(x.InstanceId) ||
+                string.IsNullOrWhiteSpace(x.InstallationId)))
+            issues.Add("IncompleteIdentity");
+
+        string evidence = $"Records={records.Count}; Active={records.Count(x => x.State != LifecycleRegistrationState.Purged)}";
+        return issues.Count == 0
+            ? EngineeringDiagnosticPolicy.Passed(TestId, Name, "Registration authority identities passed consistency checks.", evidence)
+            : EngineeringDiagnosticPolicy.Failed(TestId, Name, "Registration authority identity consistency problems were found.", $"{evidence}; Issues={string.Join(";", issues)}");
+    }
+}
+
+internal sealed class ConfigurationRegistrationAuditDiagnosticLevelTest(LifecycleRegistrationAuthority authority) : IDiagnosticLevelLocalTest
+{
+    public string TestId => "AEGIS.CONFIGURATION.L1.REGISTRATION.AUDIT_CHAIN";
+    public string Name => "Registration lifecycle audit chain valid";
+    public string Owner => "Aegis.Configuration";
+    public EngineeringDiagnosticLevel Level => EngineeringDiagnosticLevel.Level1CriticalIntervention;
+    public bool IsDestructive => false;
+
+    public async Task<EngineeringDiagnosticCheckResult> RunAsync(CancellationToken cancellationToken)
+    {
+        IReadOnlyList<LifecycleRegistrationRecord> records = await authority.ListAsync(cancellationToken).ConfigureAwait(false);
+        List<string> invalid = [];
+
+        foreach (LifecycleRegistrationRecord record in records)
+        {
+            if (record.CreatedAtUtc > record.UpdatedAtUtc)
+            {
+                invalid.Add(record.RegistrationId);
+                continue;
+            }
+
+            if (record.Audit is null ||
+                record.Audit.Any(x =>
+                    x.AtUtc < record.CreatedAtUtc.AddMinutes(-1) ||
+                    x.AtUtc > DateTimeOffset.UtcNow.AddMinutes(5) ||
+                    string.IsNullOrWhiteSpace(x.Action) ||
+                    string.IsNullOrWhiteSpace(x.Actor)))
+            {
+                invalid.Add(record.RegistrationId);
+            }
+        }
+
+        string evidence = $"Records={records.Count}; InvalidAuditChains={invalid.Count}";
+        return invalid.Count == 0
+            ? EngineeringDiagnosticPolicy.Passed(TestId, Name, "Registration lifecycle audit chains passed exhaustive structural validation.", evidence)
+            : EngineeringDiagnosticPolicy.Failed(TestId, Name, "One or more registration lifecycle audit chains are structurally invalid.", $"{evidence}; RegistrationIds={string.Join(",", invalid.Take(20))}");
+    }
+}
