@@ -35,6 +35,7 @@ string contractDirectory = builder.Configuration["AegisConfiguration:ContractDir
 string runbookDirectory = builder.Configuration["AegisConfiguration:RunbookDirectory"] ?? "/var/lib/aegis/configuration/runbooks";
 string instructionDirectory = builder.Configuration["AegisConfiguration:InstructionDirectory"] ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "instruction-packs"));
 builder.Services.AddCommonSecrets(builder.Configuration);
+builder.Services.AddCommonDiagnostics();
 string diagnosticLevelStorePath = builder.Configuration["Aegis:Diagnostics:StorePath"]?.Trim()
     ?? Path.Combine(builder.Environment.ContentRootPath, "data", "diagnostic-level", "configuration.db");
 builder.Services.AddSingleton(new DiagnosticLevelExecutionOptions
