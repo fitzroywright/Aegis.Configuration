@@ -1,5 +1,7 @@
 using Common.Diagnostics;
 using Npgsql;
+using Aegis.Configuration.Application;
+using Aegis.Configuration.Domain;
 
 namespace Aegis.Configuration.Web;
 
