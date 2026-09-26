@@ -1,3 +1,4 @@
+using Common.Security.Integration;
 using Microsoft.AspNetCore.HttpOverrides;
 using Npgsql;
 using System.Threading.RateLimiting;
@@ -13,6 +14,16 @@ using Common.Registration;
 using Common.Secrets;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+if (string.Equals(
+        builder.Configuration["SuiteSecurity:Mode"],
+        "ActiveDirectory",
+        StringComparison.OrdinalIgnoreCase))
+{
+    AuthenticationPluginLoader.Register(
+        builder.Services,
+        builder.Configuration,
+        builder.Environment.ContentRootPath);
+}
 string operationsLogInstanceId = builder.Configuration["Aegis:Registration:InstanceId"]?.Trim() ?? Environment.MachineName;
 string operationsLogCredentialFile = builder.Configuration["Aegis:Registration:CredentialFile"]?.Trim()
     ?? "/var/lib/aegis/configuration/registration.key";
