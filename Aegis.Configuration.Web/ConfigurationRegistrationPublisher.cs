@@ -1,3 +1,5 @@
+using System.Net.Http.Headers;
+using Common.Diagnostics;
 using System.Reflection;
 using System.Text.Json.Nodes;
 using Common.Registration;
@@ -37,6 +39,13 @@ internal sealed class ConfigurationRegistrationPublisher(
                     logger: logger);
 
                 ControlPlaneRegistrationStatus result = await registration.RegisterAsync(contract, stoppingToken);
+                await PublishLifecycleAsync(
+                    operationsUrl,
+                    instanceId,
+                    credentialFile,
+                    result,
+                    stoppingToken);
+
                 if (result.IsRegistered)
                 {
                     logger.LogInformation(
@@ -179,4 +188,46 @@ internal sealed class ConfigurationRegistrationPublisher(
 
     private static string? NullIfBlank(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private static async Task PublishLifecycleAsync(
+        string operationsUrl,
+        string instanceId,
+        string credentialFile,
+        ControlPlaneRegistrationStatus result,
+        CancellationToken ct)
+    {
+        if (!File.Exists(credentialFile)) return;
+        string credential = (await File.ReadAllTextAsync(credentialFile, ct)).Trim();
+        if (string.IsNullOrWhiteSpace(credential)) return;
+
+        using HttpClient client = new() { Timeout = TimeSpan.FromSeconds(5) };
+        var sink = new HttpLifecycleEventSink(
+            client,
+            new HttpLifecycleEventSinkOptions(
+                new Uri(operationsUrl.TrimEnd('/') + "/api/operations/lifecycle/events")),
+            (request, lifecycleEvent, _) =>
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
+                request.Headers.TryAddWithoutValidation("X-Aegis-Application-Id", ApplicationId);
+                request.Headers.TryAddWithoutValidation("X-Aegis-Instance-Id", instanceId);
+                return Task.CompletedTask;
+            });
+
+        LifecycleEventOutcome outcome = result.IsRegistered
+            ? LifecycleEventOutcome.Succeeded
+            : result.State.ToString().Contains("Error", StringComparison.OrdinalIgnoreCase)
+                ? LifecycleEventOutcome.Failed
+                : LifecycleEventOutcome.Warning;
+
+        await new LifecycleTelemetry(sink).EmitAsync(
+            LifecycleEvent.Create(
+                ApplicationId,
+                instanceId,
+                "Registration",
+                result.State.ToString(),
+                outcome,
+                Guid.NewGuid().ToString("N")),
+            ct);
+    }
+
 }
+
