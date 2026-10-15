@@ -517,7 +517,7 @@ public sealed class LifecycleRegistrationAuthorityTests
     [InlineData((int)LifecycleRegistrationState.Rejected)]
     [InlineData((int)LifecycleRegistrationState.Revoked)]
     [InlineData((int)LifecycleRegistrationState.IdentityConflict)]
-    public async Task CafeteriaReset_RetiresEveryState_AndAllowsFreshPendingRegistration(int stateValue)
+    public async Task ApplicationReset_RetiresEveryState_AndAllowsFreshPendingRegistration(int stateValue)
     {
         // Public test signatures cannot expose the internal lifecycle enum.
         var state = (LifecycleRegistrationState)stateValue;
@@ -537,7 +537,8 @@ public sealed class LifecycleRegistrationAuthorityTests
         var other = await authority.IntroduceAsync(
             "Aegis.CafeteriaBackup", "kratos", "other-install", null,
             "intro", null, null, "other", default);
-        Assert.Equal(1, await authority.ResetCafeteriaAsync(
+        Assert.Equal(1, await authority.ResetApplicationsAsync(
+            new("Aegis.Cafeteria", true), [intro.Record.RegistrationId],
             "administrator", "127.0.0.1", "test", "Reinstall", "cleanup", default));
         var retired = await store.LoadAsync(intro.Record.RegistrationId, default);
         Assert.Equal(LifecycleRegistrationState.Purged, retired!.State);
@@ -547,11 +548,12 @@ public sealed class LifecycleRegistrationAuthorityTests
         Assert.Null(retired.ConflictInstallationId);
         Assert.Null(retired.ConflictRuntimeSessionId);
         Assert.NotEqual(intro.Record.ClaimTokenHash, retired.ClaimTokenHash);
-        Assert.Contains(retired.Audit, x => x.Action == "CafeteriaRegistrationReset" &&
+        Assert.Contains(retired.Audit, x => x.Action == "ApplicationRegistrationReset" &&
             x.Actor == "administrator" && x.Reason == "Reinstall" && x.PreviousState == state);
         Assert.Equal(LifecycleRegistrationState.Pending,
             (await store.LoadAsync(other.Record.RegistrationId, default))!.State);
-        Assert.Equal(0, await authority.ResetCafeteriaAsync(
+        Assert.Equal(0, await authority.ResetApplicationsAsync(
+            new("Aegis.Cafeteria", true), [],
             "administrator", null, null, "Retry", "retry", default));
         var fresh = await authority.IntroduceAsync(
             "Aegis.Cafeteria.Services", "kratos", "new-install", null,
@@ -566,11 +568,52 @@ public sealed class LifecycleRegistrationAuthorityTests
     }
 
     [Fact]
-    public async Task CafeteriaReset_RequiresReason()
+    public async Task ApplicationReset_RequiresReason()
     {
         var authority = CreateAuthority(new InMemoryLifecycleRegistrationStore());
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            authority.ResetCafeteriaAsync("admin", null, null, "", null, default));
+            authority.ResetApplicationsAsync(new("Aegis.Test", true), [], "admin", null, null, "", null, default));
+    }
+
+    [Fact]
+    public async Task ApplicationReset_RejectsChangedPreview_WithoutRemovingAnyRegistration()
+    {
+        var store = new InMemoryLifecycleRegistrationStore();
+        var authority = CreateAuthority(store);
+        var first = await authority.IntroduceAsync("Aegis.Studio.Web", "host-a", "install-a",
+            null, "intro", null, null, "first", default);
+        await authority.IntroduceAsync("Aegis.Studio.Worker", "host-b", "install-b",
+            null, "intro", null, null, "second", default);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => authority.ResetApplicationsAsync(
+            new("Aegis.Studio", true), [first.Record.RegistrationId],
+            "admin", null, null, "Reset", "stale-preview", default));
+        Assert.Equal(2, (await authority.ListAsync(default)).Count);
+    }
+
+    [Fact]
+    public async Task ApplicationReset_ExactScopeDoesNotRetireDescendants()
+    {
+        var store = new InMemoryLifecycleRegistrationStore();
+        var authority = CreateAuthority(store);
+        var root = await authority.IntroduceAsync("Aegis.Studio", "host", "install-root",
+            null, "intro", null, null, "root", default);
+        var child = await authority.IntroduceAsync("Aegis.Studio.Worker", "host", "install-child",
+            null, "intro", null, null, "child", default);
+        Assert.Equal(1, await authority.ResetApplicationsAsync(
+            new("Aegis.Studio", false), [root.Record.RegistrationId],
+            "admin", null, null, "Reset", "exact", default));
+        Assert.Equal(child.Record.RegistrationId, Assert.Single(await authority.ListAsync(default)).RegistrationId);
+    }
+
+    [Theory]
+    [InlineData("Aegis.Operations", false)]
+    [InlineData("Aegis.Configuration", true)]
+    [InlineData("Aegis", true)]
+    public async Task ApplicationReset_ProtectsControlPlane(string id, bool includeChildren)
+    {
+        var authority = CreateAuthority(new InMemoryLifecycleRegistrationStore());
+        await Assert.ThrowsAsync<ArgumentException>(() => authority.ResetApplicationsAsync(
+            new(id, includeChildren), [], "admin", null, null, "Reset", "protected", default));
     }
 
     private static LifecycleRegistrationAuthority CreateAuthority(

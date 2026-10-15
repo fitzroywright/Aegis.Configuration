@@ -230,7 +230,7 @@ internal static class LifecycleFlowSnapshotBuilder
             "RecoveryRequested" => ("Recovery", "Started"),
             "Revoked" => ("Revoke", "Succeeded"),
             "Purged" => ("Purge", "Succeeded"),
-            "CafeteriaRegistrationReset" => ("Cleanup", "Succeeded"),
+            "CafeteriaRegistrationReset" or "ApplicationRegistrationReset" => ("Cleanup", "Succeeded"),
             "IdentityConflict" or "IdentityConflictAuthentication" => ("Identity", "Failed"),
             "IdentityConflictResolvedRetainExisting" => ("Identity", "Resolved"),
             "IdentityConflictResolvedReplaceWithIncoming" => ("Identity", "Resolved"),
