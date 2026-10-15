@@ -24,6 +24,7 @@ internal sealed record LifecycleRecoveryRequest(
     string? RegistrationId);
 
 internal sealed record LifecycleDecisionRequest(string? Reason);
+internal sealed record CafeteriaCleanupRequest(string? Reason, string? Confirmation, bool ApplicationsStopped);
 
 internal static class LifecycleRegistrationEndpoints
 {
@@ -222,13 +223,48 @@ internal static class LifecycleRegistrationEndpoints
             }
         }).AllowAnonymous().RequireRateLimiting("registration-lifecycle-rate-limit");
 
+        app.MapPost("/api/registration/cleanup/cafeteria", async (
+            HttpContext context,
+            [Microsoft.AspNetCore.Mvc.FromBody] CafeteriaCleanupRequest request,
+            LifecycleRegistrationAuthority authority,
+            Aegis.Configuration.Infrastructure.DirectoryContractStore contracts,
+            CancellationToken ct) =>
+        {
+            if (!Has(context, "Configuration.Manage")) return Forbidden();
+            if (context.Request.Headers["X-Aegis-Action"] != "registration-cleanup")
+                return Results.BadRequest(new { error = "Explicit cleanup action header is required." });
+            if (request.Confirmation != "CAFETERIA" || !request.ApplicationsStopped ||
+                string.IsNullOrWhiteSpace(request.Reason))
+                return Results.BadRequest(new { error = "Confirm CAFETERIA, stop its applications, and provide a reason." });
+            try
+            {
+                int registrations = await authority.ResetCafeteriaAsync(
+                    Actor(context), context.Connection.RemoteIpAddress?.ToString(),
+                    context.Request.Headers.UserAgent.ToString(),
+                    request.Reason, Correlation(context), ct);
+                int retiredContracts = 0;
+                foreach (var contract in (await contracts.LoadAllAsync(ct))
+                    .Where(x => LifecycleRegistrationAuthority.IsCafeteriaApplication(x.ApplicationId)))
+                {
+                    if (await contracts.RetireAsync(contract.ApplicationId, "registration-reset", ct))
+                        retiredContracts++;
+                }
+                context.Response.Headers.CacheControl = "no-store";
+                return Results.Ok(new { registrations, retiredContracts, auditRetained = true });
+            }
+            catch (PostgresException ex)
+            {
+                return PersistenceFailure("cafeteria-cleanup", ex);
+            }
+        });
+
         app.MapGet("/api/registration/requests", async (
             HttpContext context,
             bool? includePurged,
             LifecycleRegistrationAuthority authority,
             CancellationToken ct) =>
         {
-            if (!Has(context, "Configuration.Manage")) return Forbidden();
+            if (!Has(context, "Configuration.View")) return Forbidden();
             IReadOnlyList<LifecycleRegistrationRecord> records = includePurged == true
                 ? await authority.ListAllAsync(ct)
                 : await authority.ListAsync(ct);

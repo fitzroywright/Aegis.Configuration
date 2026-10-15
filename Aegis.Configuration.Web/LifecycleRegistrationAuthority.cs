@@ -915,6 +915,49 @@ internal sealed class LifecycleRegistrationAuthority
         }
     }
 
+    internal static bool IsCafeteriaApplication(string applicationId) =>
+        applicationId.Equals("Cafeteria.Services", StringComparison.OrdinalIgnoreCase) ||
+        applicationId.Equals("Aegis.Cafeteria", StringComparison.OrdinalIgnoreCase) ||
+        applicationId.StartsWith("Aegis.Cafeteria.", StringComparison.OrdinalIgnoreCase);
+
+    public async Task<int> ResetCafeteriaAsync(
+        string actor, string? sourceIp, string? userAgent, string reason,
+        string? correlationId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new ArgumentException("A cleanup reason is required.", nameof(reason));
+        await _gate.WaitAsync(ct);
+        try
+        {
+            int count = 0;
+            foreach (var record in (await _store.LoadAllAsync(ct))
+                .Where(x => IsCafeteriaApplication(x.ApplicationId) &&
+                    x.State != LifecycleRegistrationState.Purged))
+            {
+                DateTimeOffset now = DateTimeOffset.UtcNow;
+                await _store.SaveAsync(record with
+                {
+                    State = LifecycleRegistrationState.Purged,
+                    CredentialHash = null,
+                    ClaimTokenHash = HashToken(Token()),
+                    ClaimExpiresAtUtc = now,
+                    RevokedAtUtc = now,
+                    UpdatedAtUtc = now,
+                    ConflictInstallationId = null,
+                    ConflictRuntimeSessionId = null,
+                    ActiveRuntimeSessionId = null,
+                    RuntimeLeaseExpiresAtUtc = null,
+                    Audit = [.. record.Audit, Audit(
+                        "CafeteriaRegistrationReset", actor, sourceIp, userAgent,
+                        reason, correlationId, record.State, LifecycleRegistrationState.Purged)]
+                }, ct);
+                count++;
+            }
+            return count;
+        }
+        finally { _gate.Release(); }
+    }
+
     public async Task<IReadOnlyList<LifecycleRegistrationRecord>> ListAllAsync(
         CancellationToken ct)
     {
