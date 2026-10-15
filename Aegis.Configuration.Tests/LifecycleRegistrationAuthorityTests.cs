@@ -508,6 +508,71 @@ public sealed class LifecycleRegistrationAuthorityTests
                 CancellationToken.None));
     }
 
+    [Theory]
+    [InlineData((int)LifecycleRegistrationState.Pending)]
+    [InlineData((int)LifecycleRegistrationState.Approved)]
+    [InlineData((int)LifecycleRegistrationState.Registered)]
+    [InlineData((int)LifecycleRegistrationState.RecoveryPending)]
+    [InlineData((int)LifecycleRegistrationState.RecoveryApproved)]
+    [InlineData((int)LifecycleRegistrationState.Rejected)]
+    [InlineData((int)LifecycleRegistrationState.Revoked)]
+    [InlineData((int)LifecycleRegistrationState.IdentityConflict)]
+    public async Task CafeteriaReset_RetiresEveryState_AndAllowsFreshPendingRegistration(int stateValue)
+    {
+        // Public test signatures cannot expose the internal lifecycle enum.
+        var state = (LifecycleRegistrationState)stateValue;
+        var store = new InMemoryLifecycleRegistrationStore();
+        var authority = CreateAuthority(store);
+        var intro = await authority.IntroduceAsync(
+            "Aegis.Cafeteria.Services", "kratos", "old-install", null,
+            "intro", null, null, "intro", default);
+        await store.SaveAsync(intro.Record with
+        {
+            State = state, CredentialHash = "old-credential-hash",
+            ActiveRuntimeSessionId = "old-session",
+            RuntimeLeaseExpiresAtUtc = DateTimeOffset.UtcNow.AddMinutes(1),
+            ConflictInstallationId = "conflicting-install",
+            ConflictRuntimeSessionId = "conflicting-session"
+        }, default);
+        var other = await authority.IntroduceAsync(
+            "Aegis.CafeteriaBackup", "kratos", "other-install", null,
+            "intro", null, null, "other", default);
+        Assert.Equal(1, await authority.ResetCafeteriaAsync(
+            "administrator", "127.0.0.1", "test", "Reinstall", "cleanup", default));
+        var retired = await store.LoadAsync(intro.Record.RegistrationId, default);
+        Assert.Equal(LifecycleRegistrationState.Purged, retired!.State);
+        Assert.Null(retired.CredentialHash);
+        Assert.Null(retired.ActiveRuntimeSessionId);
+        Assert.Null(retired.RuntimeLeaseExpiresAtUtc);
+        Assert.Null(retired.ConflictInstallationId);
+        Assert.Null(retired.ConflictRuntimeSessionId);
+        Assert.NotEqual(intro.Record.ClaimTokenHash, retired.ClaimTokenHash);
+        Assert.Contains(retired.Audit, x => x.Action == "CafeteriaRegistrationReset" &&
+            x.Actor == "administrator" && x.Reason == "Reinstall" && x.PreviousState == state);
+        Assert.Equal(LifecycleRegistrationState.Pending,
+            (await store.LoadAsync(other.Record.RegistrationId, default))!.State);
+        Assert.Equal(0, await authority.ResetCafeteriaAsync(
+            "administrator", null, null, "Retry", "retry", default));
+        var fresh = await authority.IntroduceAsync(
+            "Aegis.Cafeteria.Services", "kratos", "new-install", null,
+            "intro", null, null, "reinstall", default);
+        Assert.True(fresh.Created);
+        Assert.Equal(LifecycleRegistrationState.Pending, fresh.Record.State);
+        Assert.NotEqual(intro.Record.RegistrationId, fresh.Record.RegistrationId);
+        var oldAuthentication = await authority.AuthenticateAsync(
+            "Aegis.Cafeteria.Services", "kratos", "old-install", "old-credential",
+            "old-session", "old-auth", default);
+        Assert.NotEqual(LifecycleRegistrationState.Registered, oldAuthentication?.State);
+    }
+
+    [Fact]
+    public async Task CafeteriaReset_RequiresReason()
+    {
+        var authority = CreateAuthority(new InMemoryLifecycleRegistrationStore());
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            authority.ResetCafeteriaAsync("admin", null, null, "", null, default));
+    }
+
     private static LifecycleRegistrationAuthority CreateAuthority(
         ILifecycleRegistrationStore store)
     {
