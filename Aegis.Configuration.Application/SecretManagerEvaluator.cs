@@ -42,18 +42,18 @@ public static class SecretManagerEvaluator
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         RequirementEvaluation[] secrets = evaluation.Requirements
-            .Where(x => secretIds.Contains(x.RequirementId))
+            .Where(x => secretIds.Contains(x.RequirementId) && x.State != ConfigurationState.Disabled)
             .ToArray();
 
         string providerName = ResolveProviderName(contract, secrets.Length > 0);
         var issues = new List<SecretManagerIssue>();
 
         if (secrets.Length > 0 && string.Equals(providerName, "Unknown provider", StringComparison.OrdinalIgnoreCase))
-            issues.Add(new("provider-unknown", "The application declares secret requirements but does not explicitly declare its Common.Secrets provider."));
+            issues.Add(new("provider-unknown", "The application declares secret requirements but does not declare Secrets.Provider in its published contract. Configure the application's Common.Secrets provider and republish; provider access and credential checks cannot be identified until then."));
 
-        foreach (RequirementEvaluation secret in secrets.Where(x => x.Required))
+        foreach (RequirementEvaluation secret in secrets)
         {
-            if (secret.State is not (ConfigurationState.Configured or ConfigurationState.Default))
+            if (secret.Required && secret.State is not (ConfigurationState.Configured or ConfigurationState.Default))
                 issues.Add(new($"secret-{secret.RequirementId}", $"{secret.DisplayName}: {secret.Message}"));
 
             if (!string.IsNullOrWhiteSpace(secret.VerificationStatus) && !IsPositiveStatus(secret.VerificationStatus))
@@ -61,11 +61,11 @@ public static class SecretManagerEvaluator
         }
 
         string? connectionStatus = contract.Secrets?.ConnectionStatus;
-        if (!string.IsNullOrWhiteSpace(connectionStatus) && !IsPositiveStatus(connectionStatus))
+        if (secrets.Length > 0 && !string.IsNullOrWhiteSpace(connectionStatus) && !IsPositiveStatus(connectionStatus))
             issues.Add(new("provider-connection", $"Provider connection status is '{connectionStatus}'."));
 
         string? credentialStatus = contract.Secrets?.CredentialStatus;
-        if (!string.IsNullOrWhiteSpace(credentialStatus) && !IsPositiveStatus(credentialStatus))
+        if (secrets.Length > 0 && !string.IsNullOrWhiteSpace(credentialStatus) && !IsPositiveStatus(credentialStatus))
             issues.Add(new("provider-credentials", $"Provider credential status is '{credentialStatus}'."));
 
         return new SecretManagerStatus(
@@ -91,3 +91,4 @@ public static class SecretManagerEvaluator
         return normalized is "verified" or "healthy" or "ok" or "success" or "available" or "reachable" or "valid" or "configured" or "resolved";
     }
 }
+

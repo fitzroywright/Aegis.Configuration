@@ -51,9 +51,9 @@ public sealed class ConfigurationEvaluator
 
     private static ConfigurationState ResolveState(ConfigurationRequirement requirement, bool explicitlyConfigured, bool effectiveValueAvailable)
     {
-        if (explicitlyConfigured) return ConfigurationState.Configured;
         if (string.Equals(requirement.ConfigurationState, "Disabled", StringComparison.OrdinalIgnoreCase))
             return requirement.Required ? ConfigurationState.Missing : ConfigurationState.Disabled;
+        if (explicitlyConfigured) return ConfigurationState.Configured;
         if (string.Equals(requirement.ConfigurationState, "Unknown", StringComparison.OrdinalIgnoreCase)) return ConfigurationState.Unknown;
         if (requirement.HasDefault && effectiveValueAvailable) return ConfigurationState.Default;
         return requirement.Required ? ConfigurationState.Missing : ConfigurationState.OptionalNotConfigured;
@@ -62,3 +62,4 @@ public sealed class ConfigurationEvaluator
     private static string SourceMessage(string message, string? source)
         => string.IsNullOrWhiteSpace(source) ? message + "." : $"{message} from {source}.";
 }
+

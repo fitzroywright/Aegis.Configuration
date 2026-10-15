@@ -121,7 +121,13 @@ public sealed record ConfigurationRequirement(
 
 public sealed record ConfigurationEvaluation(string ApplicationId, string Version, IReadOnlyList<RequirementEvaluation> Requirements)
 {
-    public bool IsComplete => Requirements.Where(x => x.Required).All(x => x.State is ConfigurationState.Configured or ConfigurationState.Default);
+    public string? RegistrationState { get; init; }
+    public string? LifecycleHealth { get; init; }
+    public string? InventoryError { get; init; }
+    public bool EvaluationSuspended { get; init; }
+    public bool NeedsAttention => InventoryError is not null || (!EvaluationSuspended && !IsComplete) ||
+        (LifecycleHealth?.Split(',').Any(x => x.Contains(": Failed", StringComparison.OrdinalIgnoreCase) || x.Contains(": Stalled", StringComparison.OrdinalIgnoreCase) || x.Contains(": Slow", StringComparison.OrdinalIgnoreCase)) ?? false);
+    public bool IsComplete => !EvaluationSuspended && Requirements.Where(x => x.Required).All(x => x.State is ConfigurationState.Configured or ConfigurationState.Default);
 
     public ConfigurationReadiness ToReadiness(DateTimeOffset? observedAtUtc = null)
     {
@@ -159,3 +165,4 @@ public sealed record RequirementEvaluation(
     string? DefaultValue = null,
     string? ConditionalOn = null,
     string? VerificationStatus = null);
+
