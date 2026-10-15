@@ -915,24 +915,26 @@ internal sealed class LifecycleRegistrationAuthority
         }
     }
 
-    internal static bool IsCafeteriaApplication(string applicationId) =>
-        applicationId.Equals("Cafeteria.Services", StringComparison.OrdinalIgnoreCase) ||
-        applicationId.Equals("Aegis.Cafeteria", StringComparison.OrdinalIgnoreCase) ||
-        applicationId.StartsWith("Aegis.Cafeteria.", StringComparison.OrdinalIgnoreCase);
-
-    public async Task<int> ResetCafeteriaAsync(
+    public async Task<int> ResetApplicationsAsync(
+        RegistrationCleanupScope scope, IReadOnlyCollection<string> expectedRegistrationIds,
         string actor, string? sourceIp, string? userAgent, string reason,
         string? correlationId, CancellationToken ct)
     {
+        if (!scope.IsValid || scope.IsProtected)
+            throw new ArgumentException("Select an application scope outside the control-plane services.", nameof(scope));
         if (string.IsNullOrWhiteSpace(reason))
             throw new ArgumentException("A cleanup reason is required.", nameof(reason));
         await _gate.WaitAsync(ct);
         try
         {
+            var selected = (await _store.LoadAllAsync(ct))
+                .Where(x => scope.Matches(x.ApplicationId) &&
+                    x.State != LifecycleRegistrationState.Purged).ToList();
+            if (!selected.Select(x => x.RegistrationId).ToHashSet(StringComparer.Ordinal)
+                .SetEquals(expectedRegistrationIds))
+                throw new InvalidOperationException("Registrations changed. Review a fresh cleanup preview.");
             int count = 0;
-            foreach (var record in (await _store.LoadAllAsync(ct))
-                .Where(x => IsCafeteriaApplication(x.ApplicationId) &&
-                    x.State != LifecycleRegistrationState.Purged))
+            foreach (var record in selected)
             {
                 DateTimeOffset now = DateTimeOffset.UtcNow;
                 await _store.SaveAsync(record with
@@ -948,7 +950,7 @@ internal sealed class LifecycleRegistrationAuthority
                     ActiveRuntimeSessionId = null,
                     RuntimeLeaseExpiresAtUtc = null,
                     Audit = [.. record.Audit, Audit(
-                        "CafeteriaRegistrationReset", actor, sourceIp, userAgent,
+                        "ApplicationRegistrationReset", actor, sourceIp, userAgent,
                         reason, correlationId, record.State, LifecycleRegistrationState.Purged)]
                 }, ct);
                 count++;

@@ -24,7 +24,9 @@ internal sealed record LifecycleRecoveryRequest(
     string? RegistrationId);
 
 internal sealed record LifecycleDecisionRequest(string? Reason);
-internal sealed record CafeteriaCleanupRequest(string? Reason, string? Confirmation, bool ApplicationsStopped);
+internal sealed record ApplicationCleanupRequest(
+    string ApplicationId, bool IncludeChildren, string? Reason, string? Confirmation,
+    bool ApplicationsStopped, string[]? ExpectedRegistrationIds, string[]? ExpectedContracts);
 
 internal static class LifecycleRegistrationEndpoints
 {
@@ -223,38 +225,78 @@ internal static class LifecycleRegistrationEndpoints
             }
         }).AllowAnonymous().RequireRateLimiting("registration-lifecycle-rate-limit");
 
-        app.MapPost("/api/registration/cleanup/cafeteria", async (
+        app.MapGet("/api/registration/cleanup-targets", async (
+            HttpContext context, LifecycleRegistrationAuthority authority,
+            Aegis.Configuration.Infrastructure.DirectoryContractStore contracts, CancellationToken ct) =>
+        {
+            if (!Has(context, "Configuration.Manage")) return Forbidden();
+            var ids = (await authority.ListAsync(ct)).Select(x => x.ApplicationId)
+                .Concat((await contracts.LoadAllAsync(ct)).Select(x => x.ApplicationId))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(x => !new RegistrationCleanupScope(x, false).IsProtected)
+                .OrderBy(x => x, StringComparer.OrdinalIgnoreCase);
+            return Results.Ok(new { applicationIds = ids.ToArray() });
+        });
+
+        app.MapGet("/api/registration/cleanup-preview", async (
+            HttpContext context, string applicationId, bool includeChildren,
+            LifecycleRegistrationAuthority authority,
+            Aegis.Configuration.Infrastructure.DirectoryContractStore contracts, CancellationToken ct) =>
+        {
+            if (!Has(context, "Configuration.Manage")) return Forbidden();
+            var scope = new RegistrationCleanupScope(applicationId, includeChildren);
+            if (!scope.IsValid || scope.IsProtected)
+                return Results.BadRequest(new { error = "Choose an application scope outside the control-plane services." });
+            var registrations = (await authority.ListAsync(ct)).Where(x => scope.Matches(x.ApplicationId))
+                .Select(x => new { x.RegistrationId, x.ApplicationId, x.InstanceId, state = x.State.ToString() }).ToArray();
+            var selectedContracts = (await contracts.LoadAllAsync(ct)).Where(x => scope.Matches(x.ApplicationId))
+                .Select(x => x.ApplicationId).ToArray();
+            context.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(new { applicationId, includeChildren, registrations, contracts = selectedContracts });
+        });
+
+        app.MapPost("/api/registration/cleanup", async (
             HttpContext context,
-            [Microsoft.AspNetCore.Mvc.FromBody] CafeteriaCleanupRequest request,
+            [Microsoft.AspNetCore.Mvc.FromBody] ApplicationCleanupRequest request,
             LifecycleRegistrationAuthority authority,
             Aegis.Configuration.Infrastructure.DirectoryContractStore contracts,
             CancellationToken ct) =>
         {
             if (!Has(context, "Configuration.Manage")) return Forbidden();
+            var scope = new RegistrationCleanupScope(request.ApplicationId ?? "", request.IncludeChildren);
+            if (!scope.IsValid || scope.IsProtected)
+                return Results.BadRequest(new { error = "Choose an application scope outside the control-plane services." });
             if (context.Request.Headers["X-Aegis-Action"] != "registration-cleanup")
                 return Results.BadRequest(new { error = "Explicit cleanup action header is required." });
-            if (request.Confirmation != "CAFETERIA" || !request.ApplicationsStopped ||
-                string.IsNullOrWhiteSpace(request.Reason))
-                return Results.BadRequest(new { error = "Confirm CAFETERIA, stop its applications, and provide a reason." });
+            if (request.Confirmation != request.ApplicationId || !request.ApplicationsStopped ||
+                string.IsNullOrWhiteSpace(request.Reason) ||
+                request.ExpectedRegistrationIds is null || request.ExpectedContracts is null)
+                return Results.BadRequest(new { error = "Review the preview, confirm the Application ID, stop its applications, and provide a reason." });
             try
             {
-                int registrations = await authority.ResetCafeteriaAsync(
+                var selectedContracts = (await contracts.LoadAllAsync(ct)).Where(x => scope.Matches(x.ApplicationId))
+                    .Select(x => x.ApplicationId).ToArray();
+                if (!selectedContracts.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(request.ExpectedContracts))
+                    return Results.Conflict(new { error = "Contracts changed. Review a fresh cleanup preview." });
+                int registrations = await authority.ResetApplicationsAsync(
+                    scope, request.ExpectedRegistrationIds,
                     Actor(context), context.Connection.RemoteIpAddress?.ToString(),
                     context.Request.Headers.UserAgent.ToString(),
                     request.Reason, Correlation(context), ct);
                 int retiredContracts = 0;
-                foreach (var contract in (await contracts.LoadAllAsync(ct))
-                    .Where(x => LifecycleRegistrationAuthority.IsCafeteriaApplication(x.ApplicationId)))
-                {
-                    if (await contracts.RetireAsync(contract.ApplicationId, "registration-reset", ct))
-                        retiredContracts++;
-                }
+                foreach (string id in selectedContracts)
+                    if (await contracts.RetireAsync(id, "registration-reset", ct)) retiredContracts++;
                 context.Response.Headers.CacheControl = "no-store";
-                return Results.Ok(new { registrations, retiredContracts, auditRetained = true });
+                return Results.Ok(new { applicationId = request.ApplicationId, request.IncludeChildren,
+                    registrations, retiredContracts, auditRetained = true });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
             }
             catch (PostgresException ex)
             {
-                return PersistenceFailure("cafeteria-cleanup", ex);
+                return PersistenceFailure("application-cleanup", ex);
             }
         });
 
