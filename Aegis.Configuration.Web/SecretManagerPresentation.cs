@@ -11,7 +11,7 @@ internal static class SecretManagerPresentation
         int requiredSecrets = status.SecretRequirements.Count(x => x.Required);
         string issues = status.Issues.Count == 0
             ? "<div class='empty'>No secret-provider issues are currently reported.</div>"
-            : string.Join("", status.Issues.Select(x => $"<div class='secret-issue'><b>{E(x.Code)}</b><span>{E(x.Message)}</span></div>"));
+            : string.Join("", status.Issues.Select(x => $"<a class='secret-issue issue-panel' href='/applications/{appId}/issues?check={Uri.EscapeDataString(x.Code)}#provider-{E(x.Code)}'><b>{E(x.Code)}</b><span>{E(x.Message)}</span></a>"));
         string requirements = status.SecretRequirements.Count == 0
             ? "<div class='empty'>This application has not declared any secret requirements.</div>"
             : string.Join("", status.SecretRequirements.Select(x => $"<div class='req'><span><b>{E(x.DisplayName)}</b><small>{E(x.Message)}</small></span><code>{E(x.State.ToString())}</code><i class='{(x.State is ConfigurationState.Configured or ConfigurationState.Default ? "ok" : "bad")}'>{(x.State is ConfigurationState.Configured or ConfigurationState.Default ? "✓" : "!")}</i></div>"));
@@ -83,3 +83,4 @@ internal static class SecretManagerPresentation
 .secret-summary,.secret-panel{padding:16px;margin:14px 0}.secret-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.secret-actions a,.disabled-action{border:1px solid #22638d;padding:9px 12px;border-radius:5px}.disabled-action{color:#7894a8;opacity:.8}.secret-issue{display:grid;grid-template-columns:180px 1fr;gap:12px;padding:10px;border-bottom:1px solid #153f5c}.secret-issue b{color:#ffbe55}.probe-result{margin-top:14px;padding:12px;border:1px solid;border-radius:6px;display:grid;gap:4px}.probe-result.good{border-color:#0c9e67;background:#063c2b}.probe-result.warn{border-color:#c88a27;background:#4a3411}.probe-result small{color:#9fb8ca}.provider-guidance{color:#c8dceb;margin-top:14px}.setup-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.setup-step{display:grid;grid-template-columns:28px 1fr;gap:8px;border:1px solid #1f587d;border-radius:6px;padding:10px}.setup-step i{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-style:normal}.setup-step i.ok{background:#08764e}.setup-step i.bad{background:#986016}.setup-step small{display:block;color:#9fb8ca;margin-top:2px}.status.neutral{background:#24394a;border-color:#5c7283}@media(max-width:800px){.setup-grid{grid-template-columns:1fr}}
 """;
 }
+

@@ -83,12 +83,20 @@ builder.Services.AddSingleton<IConfigurationContractStore>(contractStore);
 builder.Services.AddSingleton<IConfigurationContractRegistrationStore>(contractStore);
 builder.Services.AddSingleton(new InstructionPackCatalog(instructionDirectory));
 builder.Services.AddSingleton<ConfigurationEvaluator>();
+builder.Services.AddSingleton<ConfigurationApplicationInventory>();
 builder.Services.AddSingleton<CommissioningService>();
 builder.Services.AddSingleton<CommissioningReportRenderer>();
 builder.Services.AddSingleton(new RunbookArtifactStore(runbookDirectory));
 builder.Services.AddSingleton<ContractValidator>();
 WebApplication app = builder.Build();
+try { await contractStore.RetireLegacyCafeteriaAliasAsync(); }
+catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+{
+    app.Logger.LogError(exception, "Legacy Cafeteria alias archival failed; contract health and administrator views remain available.");
+}
 app.MapDiagnosticLevelRuntime();
+ContractLifecycleEndpoints.Map(app);
+ConfigurationIssueEndpoints.Map(app);
 app.UseForwardedHeaders(new ForwardedHeadersOptions
 {
     ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
@@ -244,18 +252,14 @@ app.MapGet("/api/registration/reconciliation", (HttpContext context, Registratio
 
 app.MapGet("/", async (IConfigurationContractStore store, ConfigurationEvaluator evaluator, CancellationToken ct) =>
 {
-    var contracts = (await store.LoadAllAsync(ct)).OrderBy(x => x.DisplayName).ToList();
-    var rows = new List<(ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation)>();
-    foreach (var c in contracts) rows.Add((c, await evaluator.EvaluateAsync(c, ct)));
+    var rows = await app.Services.GetRequiredService<ConfigurationApplicationInventory>().LoadAsync(ct);
     int orphanedContracts = await contractStore.CountRetiredAsync("orphaned", ct);
     return Html(RenderOverview(rows, orphanedContracts));
 });
 
 app.MapGet("/applications", async (IConfigurationContractStore store, ConfigurationEvaluator evaluator, CancellationToken ct) =>
 {
-    var contracts = (await store.LoadAllAsync(ct)).OrderBy(x => x.DisplayName).ToList();
-    var rows = new List<(ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation)>();
-    foreach (var contract in contracts) rows.Add((contract, await evaluator.EvaluateAsync(contract, ct)));
+    var rows = await app.Services.GetRequiredService<ConfigurationApplicationInventory>().LoadAsync(ct);
     int orphanedContracts = await contractStore.CountRetiredAsync("orphaned", ct);
     return Html(RenderDashboard(rows, null, orphanedContracts, "applications"));
 });
@@ -300,9 +304,7 @@ loadConfigurationLogs();setInterval(loadConfigurationLogs,5000);
 
 app.MapGet("/applications/{applicationId}", async (string applicationId, IConfigurationContractStore store, ConfigurationEvaluator evaluator, CancellationToken ct) =>
 {
-    var contracts = (await store.LoadAllAsync(ct)).OrderBy(x => x.DisplayName).ToList();
-    var rows = new List<(ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation)>();
-    foreach (var c in contracts) rows.Add((c, await evaluator.EvaluateAsync(c, ct)));
+    var rows = await app.Services.GetRequiredService<ConfigurationApplicationInventory>().LoadAsync(ct);
     int selected = rows.FindIndex(x => string.Equals(x.Contract.ApplicationId, applicationId, StringComparison.OrdinalIgnoreCase));
     int orphanedContracts = await contractStore.CountRetiredAsync("orphaned", ct);
     return selected < 0 ? Results.NotFound() : Html(RenderDashboard(rows, selected, orphanedContracts, "applications"));
@@ -588,13 +590,14 @@ app.MapGet("/contracts", async (
                    $"<a class='primary' href='/applications/{appId}/contract'>Open Contract</a>" +
                    $"<a href='/applications/{appId}'>Requirements</a>" +
                    $"<a href='/runbooks/{appId}'>Runbook</a>" +
+                   $"<a href='/contracts/manage/{appId}'>Manage lifecycle</a>" +
                    $"</div></article>";
         }));
 
     string content =
         "<style>.contracts-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px;margin-top:14px}.contract-card{padding:16px;min-height:0}.contract-card-head{display:flex;align-items:center;gap:12px;border-bottom:1px solid #24516c;padding-bottom:12px}.contract-card-head h2{margin:0}.contract-card-head .status{margin-left:auto}.contract-facts{grid-template-columns:repeat(3,minmax(0,1fr))}.contract-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.contract-actions a{border:1px solid #22638d;padding:9px 12px;border-radius:5px}.contract-actions .primary{background:#087fff;font-weight:800}@media(max-width:700px){.contracts-grid{grid-template-columns:1fr}.contract-facts{grid-template-columns:1fr 1fr}}</style>" +
         "" +
-        "<section class='toolbar'><input id='contractSearch' placeholder='⌕  Search contracts...'><a href='/contracts/raw' class='primary'>Raw Contract API</a></section>" +
+        "<section class='toolbar'><a href='/contracts/history'>Contract history</a><input id='contractSearch' placeholder='⌕  Search contracts...'><a href='/contracts/raw' class='primary'>Raw Contract API</a></section>" +
         "<section id='contractCards' class='contracts-grid'>" + cards + "</section>" +
         "<script>const cs=document.getElementById('contractSearch');if(cs)cs.addEventListener('input',()=>{const q=cs.value.toLowerCase();document.querySelectorAll('#contractCards .contract-card').forEach(x=>x.style.display=x.innerText.toLowerCase().includes(q)?'':'none');});</script>";
 
@@ -818,7 +821,7 @@ static string SiteInstance(ApplicationConfigurationContract contract)
 static string RenderOverview(List<(ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation)> rows, int orphanedContracts)
 {
     int configured = rows.Count(x => x.Evaluation.IsComplete);
-    int incomplete = rows.Count - configured;
+    int incomplete = rows.Count(x => !x.Evaluation.EvaluationSuspended && !x.Evaluation.IsComplete);
     int requirements = rows.Sum(x => x.Evaluation.Requirements.Count);
     var secretStatuses = rows
         .Select(x => (x.Contract, Status: SecretManagerEvaluator.Evaluate(x.Contract, x.Evaluation)))
@@ -827,20 +830,27 @@ static string RenderOverview(List<(ApplicationConfigurationContract Contract, Co
     int secretAttention = secretStatuses.Count(x => x.Status.HasSecrets && !x.Status.IsHealthy);
 
     var attentionRows = rows
-        .Where(x => !x.Evaluation.IsComplete || SecretManagerEvaluator.Evaluate(x.Contract, x.Evaluation) is { HasSecrets: true, IsHealthy: false })
+        .Where(x => x.Evaluation.NeedsAttention || (!x.Evaluation.EvaluationSuspended && SecretManagerEvaluator.Evaluate(x.Contract, x.Evaluation) is { HasSecrets: true, IsHealthy: false }))
         .OrderBy(x => x.Contract.DisplayName)
         .ToArray();
 
+    incomplete = attentionRows.Length;
     string attention = attentionRows.Length == 0
         ? "<div class='empty'><b class='status good'>Clear</b> No configuration conditions currently require operator attention.</div>"
         : string.Join("", attentionRows.Select(x =>
         {
             SecretManagerStatus secrets = SecretManagerEvaluator.Evaluate(x.Contract, x.Evaluation);
-            string reason = !x.Evaluation.IsComplete
+            string reason = x.Evaluation.InventoryError ?? (!x.Evaluation.EvaluationSuspended && !x.Evaluation.IsComplete
                 ? $"{x.Evaluation.Requirements.Count(r => r.Required && r.State is not ConfigurationState.Configured and not ConfigurationState.Default)} required requirement(s) unresolved"
-                : secrets.IssueLabel;
+                : secrets.IssueCount > 0 ? secrets.IssueLabel : x.Evaluation.LifecycleHealth ?? "Lifecycle details unavailable");
             string appId = Uri.EscapeDataString(x.Contract.ApplicationId);
-            return $"<a class='overview-attention' href='/applications/{appId}' data-application-id='{E(x.Contract.ApplicationId)}' data-display-name='{E(x.Contract.DisplayName)}'><b>{E(x.Contract.DisplayName)}</b><span class='status warn'>Attention</span><small>{E(reason)}</small></a>";
+            var missing = x.Evaluation.Requirements.FirstOrDefault(r => r.Required && r.State is not ConfigurationState.Configured and not ConfigurationState.Default);
+            string destination = missing is not null
+                ? $"/applications/{appId}/issues?check={Uri.EscapeDataString(missing.RequirementId)}#requirement-{E(missing.RequirementId)}"
+                : secrets.Issues.FirstOrDefault() is { } secretIssue
+                    ? $"/applications/{appId}/issues?check={Uri.EscapeDataString(secretIssue.Code)}#provider-{E(secretIssue.Code)}"
+                    : $"/applications/{appId}/issues?check=registration-health";
+            return $"<a class='overview-attention' href='{destination}' data-application-id='{E(x.Contract.ApplicationId)}' data-display-name='{E(x.Contract.DisplayName)}'><b>{E(x.Contract.DisplayName)}</b><span class='status warn'>Attention</span><small>{E(reason)}</small></a>";
         }));
 
     string recent = rows.Count == 0
@@ -862,7 +872,7 @@ static string RenderOverview(List<(ApplicationConfigurationContract Contract, Co
             int apps = group.Count();
             int issues = group.Count(x => !x.Status.IsHealthy);
             string tone = issues > 0 ? "warn" : "good";
-            return $"<div class='provider-summary'><b>{E(group.Key)}</b><span class='status {tone}'>{(issues > 0 ? $"{issues} attention" : "Healthy")}</span><small>{apps} application(s)</small></div>";
+            return $"<a class='provider-summary issue-panel' href='/provider-issues?provider={Uri.EscapeDataString(group.Key)}'><b>{E(group.Key)}</b><span class='status {tone}'>{(issues > 0 ? $"{issues} attention" : "Healthy")}</span><small>{apps} application(s)</small></a>";
         }));
 
     string css = """
@@ -876,12 +886,12 @@ static string RenderOverview(List<(ApplicationConfigurationContract Contract, Co
 <section class='metrics'>
   <a class='metric' href='/applications'><span>▦</span><b>{rows.Count}</b><small>Applications</small></a>
   <a class='metric green' href='/applications'><span>✓</span><b>{configured}</b><small>Configured</small></a>
-  <a class='metric{(incomplete > 0 ? " amber" : "")}' href='/applications'><span>!</span><b>{incomplete}</b><small>Need Attention</small></a>
+  <a class='metric{(incomplete > 0 ? " amber" : "")}' href='/#configuration-attention'><span>!</span><b>{incomplete}</b><small>Need Attention</small></a>
   <a class='metric{(orphanedContracts > 0 ? " amber" : "")}' href='/orphaned'><span>⚠</span><b>{orphanedContracts}</b><small>Orphaned Contracts</small></a>
-  <a class='metric{(secretAttention > 0 ? " amber" : "")}' href='/applications'><span>◆</span><b>{secretAttention}</b><small>Secret / Provider Issues</small></a>
+  <a class='metric{(secretAttention > 0 ? " amber" : "")}' href='/provider-issues'><span>◆</span><b>{secretAttention}</b><small>Secret / Provider Issues</small></a>
 </section>
 <section class='overview-grid'>
-  <section class='panel'><h2>Configuration Attention</h2><div class='muted'>Only unresolved configuration or secret-provider conditions appear here.</div>{attention}</section>
+  <section class='panel' id='configuration-attention'><h2>Configuration Attention</h2><div class='muted'>Only unresolved configuration or secret-provider conditions appear here.</div>{attention}</section>
   <section class='panel'><h2>Configuration Landscape</h2><div class='facts'><div><small>TOTAL REQUIREMENTS</small><b>{requirements}</b></div><div><small>SECRET-USING APPS</small><b>{secretApps}</b></div><div><small>PROVIDERS</small><b>{providers.Length}</b></div><div><small>ORPHANED CONTRACTS</small><b>{orphanedContracts}</b></div></div><div class='overview-actions'><a href='/applications'>Open Applications</a><a href='/contracts'>Contracts</a><a href='/orphaned'>Orphaned Contracts</a></div></section>
   <section class='panel recent-events'><h2>Recent Configuration Activity</h2><div class='recent-event-head'><span>Application</span><span>Event</span><span>Time</span></div><div id='configurationRecentEvents'>{recent}</div></section>
   <section class='panel'><h2>Secret Providers</h2><div class='muted'>Provider status is application-published metadata; Configuration never retrieves secret values.</div>{providerSummary}</section>
@@ -900,7 +910,7 @@ static string RenderDashboard(List<(ApplicationConfigurationContract Contract, C
     string activity = rows.Count == 0 ? "<div class='empty'>No recent configuration events.</div>" : string.Join("", rows.OrderByDescending(x => x.Contract.LastRegisteredAtUtc).Take(4).Select(x => $"<div class='recent-event-row'><b>{E(x.Contract.DisplayName)}</b><span>Registered</span><time>{Registered(x.Contract.LastRegisteredAtUtc, "MMM dd yyyy hh:mm tt")}</time></div>"));
     string overviewCss = string.Empty;
     string intro = "All registered applications and their configuration status";
-    string content = $"<style>{SecretManagerStyles()}{overviewCss}</style><section class='page-head'><div><p>{intro}</p></div></section><section class='toolbar'><input id='search' placeholder='⌕  Search applications...'><select id='statusFilter'><option value=''>All Status</option><option>Configured</option><option>Not Configured</option></select><button onclick='location.reload()'>↻</button><button class='primary' onclick='document.getElementById(\"registrationInfoDialog\").showModal()'>ⓘ Application Registration</button></section><section class='workspace'><div><section class='panel table-panel'><table id='apps'><thead><tr><th>Application</th><th>Version</th><th>Site / Instance</th><th>Configuration</th><th>Secrets</th><th>Required</th><th>Optional</th><th>Last Updated</th><th></th></tr></thead><tbody>{tableRows}</tbody></table></section><section class='lower'><div class='panel recent-events'><h3>◴ Recent Logs</h3><div class='recent-event-head'><span>Application</span><span>Event</span><span>Time</span></div><div id='configurationRecentEvents'>{activity}</div></div><div class='panel'><h3>⌘ Quick Links</h3><div class='quick'><a href='/runbooks'>▤ <span><b>Configuration Runbooks</b><small>Commissioning and recovery guidance</small></span></a><a href='/contracts'>◇ <span><b>Application Contracts</b><small>Human-readable contract views</small></span></a><a href='/orphaned'>⚠ <span><b>Orphaned Contracts</b><small>Retired contracts with no active registration</small></span></a></div></div></section></div>{detail}</section><dialog id='registrationInfoDialog'><h2>Applications Register Automatically</h2><p>Applications publish their configuration requirements to System Configuration when they start. You do not manually add applications here.</p><p><b>Configuration Server</b><br><code id='configurationServerUrl'></code></p><p><b>Registration Endpoint</b><br><code id='registrationEndpointUrl'></code></p><p>Applications should normally configure <code>Aegis:Configuration:Url</code> with the Configuration Server address above.</p><p class='muted'>Normal applications authenticate directly with Configuration using their durable Common.Registration identity. Control-plane services use their restricted bootstrap identity. Secret values are never displayed here.</p><button onclick='this.closest(\"dialog\").close()'>Close</button></dialog>";
+    string content = $"<style>{SecretManagerStyles()}{overviewCss}</style><section class='page-head'><div><p>{intro}</p></div></section><section class='toolbar'><input id='search' placeholder='⌕  Search applications...'><select id='statusFilter'><option value=''>All Status</option><option>Configured</option><option>Not Configured</option></select><button onclick='location.reload()'>↻</button><button class='primary' onclick='document.getElementById(\"registrationInfoDialog\").showModal()'>ⓘ Application Registration</button></section><section class='workspace'><div><section class='panel table-panel'><table id='apps'><thead><tr><th>Application</th><th>Version</th><th>Site / Instance</th><th>Registration</th><th>Lifecycle health</th><th>Configuration</th><th>Secrets</th><th>Required</th><th>Optional</th><th>Last Updated</th><th></th></tr></thead><tbody>{tableRows}</tbody></table></section><section class='lower'><div class='panel recent-events'><h3>◴ Recent Logs</h3><div class='recent-event-head'><span>Application</span><span>Event</span><span>Time</span></div><div id='configurationRecentEvents'>{activity}</div></div><div class='panel'><h3>⌘ Quick Links</h3><div class='quick'><a href='/runbooks'>▤ <span><b>Configuration Runbooks</b><small>Commissioning and recovery guidance</small></span></a><a href='/contracts'>◇ <span><b>Application Contracts</b><small>Human-readable contract views</small></span></a><a href='/orphaned'>⚠ <span><b>Orphaned Contracts</b><small>Retired contracts with no active registration</small></span></a></div></div></section></div>{detail}</section><dialog id='registrationInfoDialog'><h2>Applications Register Automatically</h2><p>Applications publish their configuration requirements to System Configuration when they start. You do not manually add applications here.</p><p><b>Configuration Server</b><br><code id='configurationServerUrl'></code></p><p><b>Registration Endpoint</b><br><code id='registrationEndpointUrl'></code></p><p>Applications should normally configure <code>Aegis:Configuration:Url</code> with the Configuration Server address above.</p><p class='muted'>Normal applications authenticate directly with Configuration using their durable Common.Registration identity. Control-plane services use their restricted bootstrap identity. Secret values are never displayed here.</p><button onclick='this.closest(\"dialog\").close()'>Close</button></dialog>";
     return ConfigurationShell.Render("Applications", content, "applications");
 }
 
@@ -909,18 +919,18 @@ static string RenderApplicationRow((ApplicationConfigurationContract Contract, C
     SecretManagerStatus secrets = SecretManagerEvaluator.Evaluate(x.Contract, x.Evaluation);
     string appId = Uri.EscapeDataString(x.Contract.ApplicationId);
     string secretSummary = secrets.HasSecrets ? $"<details class='secret-menu' onclick='event.stopPropagation()'><summary class='secret-pill {E(secrets.CssClass)}'><span>{E(secrets.Glyph)}</span>{E(secrets.ProviderName)} · {E(secrets.IssueLabel)}</summary><div class='secret-menu-items'><a href='/applications/{appId}/secrets'>Configure</a><a href='/applications/{appId}/secrets#issues'>View Issues</a>{(secrets.CanOpenProviderConsole ? $"<a href='{E(secrets.ManagementUrl)}' target='_blank' rel='noopener'>Open Provider Console</a>" : string.Empty)}</div></details>" : "<span class='secret-pill neutral'>— No secrets</span>";
-    return $"<tr class='{(selected ? "selected" : "")}' data-application-id='{E(x.Contract.ApplicationId)}' data-display-name='{E(x.Contract.DisplayName)}'><td><a class='application-cell' href='/applications/{appId}'>{AppIcon(x.Contract, index)}<b>{E(x.Contract.DisplayName)}</b></a></td><td>{E(x.Contract.Version)}</td><td>{SiteInstance(x.Contract)}</td><td><span class='status {(x.Evaluation.IsComplete ? "good" : "warn")}'>{(x.Evaluation.IsComplete ? "Configured" : "Not Configured")}</span></td><td>{secretSummary}</td><td>{x.Evaluation.Requirements.Count(r => r.Required)}</td><td>{x.Evaluation.Requirements.Count(r => !r.Required)}</td><td>{Registered(x.Contract.LastRegisteredAtUtc, "MMM dd yyyy hh:mm tt")}</td><td>›</td></tr>";
+    return $"<tr class='{(selected ? "selected" : "")}' data-application-id='{E(x.Contract.ApplicationId)}' data-display-name='{E(x.Contract.DisplayName)}' data-configuration-state='{(x.Evaluation.EvaluationSuspended ? "Retired" : x.Evaluation.IsComplete ? "Configured" : "Not Configured")}'><td><a class='application-cell'  href='/applications/{appId}'>{AppIcon(x.Contract, index)}<b>{E(x.Contract.DisplayName)}</b></a></td><td>{E(x.Contract.Version)}</td><td>{SiteInstance(x.Contract)}</td><td>{E(x.Evaluation.RegistrationState)}</td><td><a class='issue-panel' href='/applications/{appId}/issues?check=registration-health'>{E(x.Evaluation.LifecycleHealth)}</a></td><td><span class='status {(x.Evaluation.IsComplete ? "good" : "warn")}'>{(x.Evaluation.EvaluationSuspended ? "Retired" : x.Evaluation.IsComplete ? "Configured" : "Not Configured")}</span></td><td>{secretSummary}</td><td>{x.Evaluation.Requirements.Count(r => r.Required)}</td><td>{x.Evaluation.Requirements.Count(r => !r.Required)}</td><td>{Registered(x.Contract.LastRegisteredAtUtc, "MMM dd yyyy hh:mm tt")}</td><td>›</td></tr>";
 }
 
 static string RenderDetails((ApplicationConfigurationContract Contract, ConfigurationEvaluation Evaluation) x)
 {
-    string req = string.Join("", x.Evaluation.Requirements.Where(r => r.Required).Select(RenderRequirement));
-    string opt = string.Join("", x.Evaluation.Requirements.Where(r => !r.Required).Select(RenderRequirement));
+    string req = string.Join("", x.Evaluation.Requirements.Where(r => r.Required).Select(r => RenderRequirement(r, x.Contract.ApplicationId)));
+    string opt = string.Join("", x.Evaluation.Requirements.Where(r => !r.Required).Select(r => RenderRequirement(r, x.Contract.ApplicationId)));
     string environment = RenderRuntimeEnvironment(x.Contract.RuntimeEnvironment);
     string appId = Uri.EscapeDataString(x.Contract.ApplicationId);
     SecretManagerStatus secrets = SecretManagerEvaluator.Evaluate(x.Contract, x.Evaluation);
     string secretsSummary = secrets.HasSecrets ? $"<a class='secret-detail-link' href='/applications/{appId}/secrets'><span>{E(secrets.Glyph)}</span><span><b>Secrets: {E(secrets.ProviderName)}</b><small>{E(secrets.IssueLabel)}</small></span></a>" : "<div class='secret-detail-link disabled'><span>—</span><span><b>Secrets</b><small>No secret requirements declared</small></span></div>";
-    return $"<aside class='detail'><div class='detail-head'>{AppIcon(x.Contract, 0, "bigicon")}<div><h2>{E(x.Contract.DisplayName)}</h2><small>{E(x.Contract.ApplicationId)}</small></div><span class='status {(x.Evaluation.IsComplete ? "good" : "warn")}'>{(x.Evaluation.IsComplete ? "Configured" : "Not Configured")}</span></div><div class='facts'><div><small>VERSION</small><b>{E(x.Contract.Version)}</b></div><div><small>SITE / INSTANCE</small><b>{SiteInstance(x.Contract)}</b></div><div><small>REGISTERED</small><b>{Registered(x.Contract.LastRegisteredAtUtc, "MMM dd yyyy")}</b></div><div><small>APPLICATION ID</small><b>{E(x.Contract.ApplicationId)}</b></div></div>{secretsSummary}<nav class='tabs'><b>Requirements</b><a href='/applications/{appId}/details'>Details</a><a href='/applications/{appId}/details#settings'>Settings</a><a href='/applications/{appId}/secrets'>Secrets</a><a href='/applications/{appId}/details#providers'>Providers</a><a href='/applications/{appId}/details#diagnostics'>Diagnostics</a><a href='/runbooks/{appId}'>Runbooks</a><a href='/applications/{appId}/contract'>Contract</a></nav><h3>Required Requirements</h3><div class='reqs'>{(string.IsNullOrEmpty(req) ? "<div class='empty'>None</div>" : req)}</div><h3>Optional Requirements</h3><div class='reqs'>{(string.IsNullOrEmpty(opt) ? "<div class='empty'>None</div>" : opt)}</div>{environment}</aside>";
+    return $"<aside class='detail'><div class='detail-head'>{AppIcon(x.Contract, 0, "bigicon")}<div><h2>{E(x.Contract.DisplayName)}</h2><small>{E(x.Contract.ApplicationId)}</small></div><span class='status {(x.Evaluation.IsComplete ? "good" : "warn")}'>{(x.Evaluation.EvaluationSuspended ? "Retired" : x.Evaluation.IsComplete ? "Configured" : "Not Configured")}</span></div><div class='facts'><div><small>VERSION</small><b>{E(x.Contract.Version)}</b></div><div><small>SITE / INSTANCE</small><b>{SiteInstance(x.Contract)}</b></div><div><small>REGISTERED</small><b>{Registered(x.Contract.LastRegisteredAtUtc, "MMM dd yyyy")}</b></div><div><small>APPLICATION ID</small><b>{E(x.Contract.ApplicationId)}</b></div></div>{secretsSummary}<nav class='tabs'><b>Requirements</b><a href='/applications/{appId}/details'>Details</a><a href='/applications/{appId}/details#settings'>Settings</a><a href='/applications/{appId}/secrets'>Secrets</a><a href='/applications/{appId}/details#providers'>Providers</a><a href='/applications/{appId}/details#diagnostics'>Diagnostics</a><a href='/runbooks/{appId}'>Runbooks</a><a href='/applications/{appId}/contract'>Contract</a></nav><h3>Required Requirements</h3><div class='reqs'>{(string.IsNullOrEmpty(req) ? "<div class='empty'>None</div>" : req)}</div><h3>Optional Requirements</h3><div class='reqs'>{(string.IsNullOrEmpty(opt) ? "<div class='empty'>None</div>" : opt)}</div>{environment}</aside>";
 }
 
 static string RenderRuntimeEnvironment(RuntimeEnvironmentSnapshot? environment)
@@ -931,7 +941,7 @@ static string RenderRuntimeEnvironment(RuntimeEnvironmentSnapshot? environment)
     return $"<h3>Detected Runtime Environment</h3><div class='facts'><div><small>MACHINE / HOST</small><b>{E(environment.MachineName)} / {E(environment.HostName)}</b></div><div><small>HOSTING ENVIRONMENT</small><b>{E(environment.HostingEnvironment)}</b></div><div><small>OPERATING SYSTEM</small><b>{E(environment.OperatingSystem)}</b></div><div><small>ARCHITECTURE</small><b>{E(environment.OsArchitecture)} / {E(environment.ProcessArchitecture)}</b></div><div><small>.NET</small><b>{E(environment.FrameworkDescription)}</b></div><div><small>PROCESSORS</small><b>{environment.ProcessorCount?.ToString() ?? "—"}</b></div><div><small>DNS DOMAIN</small><b>{E(environment.DnsDomainName)}</b></div></div><h3>Detected Network Identity</h3><div class='reqs'>{interfaces}</div><h3>Detected Storage Identity</h3><div class='reqs'>{storage}</div>";
 }
 
-static string RenderRequirement(RequirementEvaluation r)
+static string RenderRequirement(RequirementEvaluation r, string applicationId)
 {
     string value = r.Sensitive ? "Protected / not displayed" : E(r.DisplayValue);
     string source = string.IsNullOrWhiteSpace(r.EffectiveSource) ? "Source: unresolved" : $"Source: {E(r.EffectiveSource)}";
@@ -940,7 +950,7 @@ static string RenderRequirement(RequirementEvaluation r)
     string stateLabel = r.State switch { ConfigurationState.Configured => "Configured", ConfigurationState.Default => "Default", ConfigurationState.Unknown => "Unknown", ConfigurationState.Missing => "Missing", _ => "Optional" };
     string iconClass = r.State is ConfigurationState.Configured or ConfigurationState.Default ? "ok" : "bad";
     string icon = r.State switch { ConfigurationState.Configured => "✓", ConfigurationState.Default => "D", ConfigurationState.Unknown => "?", _ => "!" };
-    return $"<div class='req'><span><b>{E(r.DisplayName)}</b><small>{E(r.Purpose ?? r.Message)}</small><small>{stateLabel} · {source}{defaultText}{condition}</small></span><code>{value}</code><i class='{iconClass}'>{icon}</i></div>";
+    return $"<a class='req issue-panel' href='/applications/{Uri.EscapeDataString(applicationId)}/issues?check={Uri.EscapeDataString(r.RequirementId)}#requirement-{E(r.RequirementId)}'><span><b>{E(r.DisplayName)}</b><small>{E(r.Purpose ?? r.Message)}</small><small>{stateLabel} · {source}{defaultText}{condition}</small></span><code>{value}</code><i class='{iconClass}'>{icon}</i></a>";
 }
 static string RegistrationIcon(LifecycleRegistrationRecord record)
 {
