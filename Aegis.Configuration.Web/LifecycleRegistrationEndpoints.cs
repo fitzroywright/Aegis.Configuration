@@ -157,7 +157,8 @@ internal static class LifecycleRegistrationEndpoints
                 credential,
                 runtimeSessionId,
                 Correlation(context),
-                ct);
+                ct,
+                context.Request.Headers["X-Aegis-Required-Scope"].ToString() is { Length: > 0 } scope ? scope : "registration.authenticate");
 
             if (record is null) return Results.Unauthorized();
             if (record.State == LifecycleRegistrationState.IdentityConflict)

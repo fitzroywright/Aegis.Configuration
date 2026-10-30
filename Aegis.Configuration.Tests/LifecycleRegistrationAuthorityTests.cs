@@ -616,6 +616,28 @@ public sealed class LifecycleRegistrationAuthorityTests
             new(id, includeChildren), [], "admin", null, null, "Reset", "protected", default));
     }
 
+    [Fact]
+    public async Task InvalidCredentialCannotMutateInstallationConflictState()
+    {
+        var store=new InMemoryLifecycleRegistrationStore();var authority=CreateAuthority(store);
+        var registered=await RegisterAsync(authority,"original-installation");
+        var denied=await authority.AuthenticateAsync("Aegis.Hello","Production","attacker-installation","invalid-secret","session","correlation",TestContext.Current.CancellationToken);
+        Assert.Null(denied);
+        var unchanged=await store.LoadAsync(registered.Record.RegistrationId,TestContext.Current.CancellationToken);
+        Assert.Equal(LifecycleRegistrationState.Registered,unchanged!.State);Assert.Null(unchanged.ConflictInstallationId);
+    }
+
+    [Fact]
+    public async Task RegisteredCredentialCannotAcquireAnUnapprovedScope()
+    {
+        var store=new InMemoryLifecycleRegistrationStore();var authority=CreateAuthority(store);
+        var registered=await RegisterAsync(authority,"installation");
+        var denied=await authority.AuthenticateAsync("Aegis.Hello","Production","installation",registered.Credential,"session","correlation",TestContext.Current.CancellationToken,"security.manage");
+        Assert.Null(denied);
+        var allowed=await authority.AuthenticateAsync("Aegis.Hello","Production","installation",registered.Credential,"session","correlation",TestContext.Current.CancellationToken,"operations.telemetry.publish");
+        Assert.Equal(LifecycleRegistrationState.Registered,allowed!.State);
+    }
+
     private static LifecycleRegistrationAuthority CreateAuthority(
         ILifecycleRegistrationStore store)
     {

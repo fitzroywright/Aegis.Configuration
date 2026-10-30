@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <CommonRoot Condition="'$(CommonRoot)' == ''">$(MSBuildThisFileDirectory)..\..\Common</CommonRoot>
   </PropertyGroup>
-  <ItemGroup>
+  <ItemGroup><PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" /></ItemGroup><ItemGroup>
     <PackageReference Include="Npgsql" Version="10.0.0" />
   </ItemGroup>
   <ItemGroup>
@@ -13,7 +13,7 @@
     <ProjectReference Include="../Aegis.Configuration.Application/Aegis.Configuration.Application.csproj" />
     <ProjectReference Include="../Aegis.Configuration.Infrastructure/Aegis.Configuration.Infrastructure.csproj" />
     <ProjectReference Include="$(CommonRoot)\Common.Diagnostics\Common.Diagnostics.csproj" AdditionalProperties="Configuration=$(Configuration)" />
-    <ProjectReference Include="$(CommonRoot)\Common.Security\Common.Security.csproj" AdditionalProperties="Configuration=$(Configuration)" /><ProjectReference Include="$(CommonRoot)\Common.Security\Common.Security.Plugin.ActiveDirectory\Common.Security.Plugin.ActiveDirectory.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="$(CommonRoot)\Common.Security\Common.Security.csproj" AdditionalProperties="Configuration=$(Configuration)" /><ProjectReference Include="$(CommonRoot)\Common.Security\Common.Security.Hosting\Common.Security.Hosting.csproj" /><ProjectReference Include="$(CommonRoot)\Common.Security\Common.Security.Plugin.ActiveDirectory\Common.Security.Plugin.ActiveDirectory.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="$(CommonRoot)\Common.Registration\Common.Registration.csproj" AdditionalProperties="Configuration=$(Configuration)" />
   </ItemGroup>
   <ItemGroup>
