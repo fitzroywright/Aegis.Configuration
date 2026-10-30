@@ -6,4 +6,6 @@
   <Project Path="Aegis.Configuration.Tests/Aegis.Configuration.Tests.csproj" />
   <Project Path="../Common/Common.Secrets/Common.Secrets.csproj" />
   <Project Path="../Common/Common.Diagnostics/Common.Diagnostics.csproj" />
+  <Project Path="../Common/Common.Security/Common.Security.Hosting/Common.Security.Hosting.csproj" />
+  <Project Path="../Common/Common.Security/Common.Security.Plugin.ActiveDirectory/Common.Security.Plugin.ActiveDirectory.csproj" />
 </Solution>

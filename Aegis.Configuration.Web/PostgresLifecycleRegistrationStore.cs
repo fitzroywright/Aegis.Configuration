@@ -48,7 +48,7 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                    created_at_utc, updated_at_utc, approved_at_utc, registered_at_utc,
                    last_authenticated_at_utc, revoked_at_utc, metadata_json,
                    conflict_installation_id, active_runtime_session_id,
-                   runtime_lease_expires_at_utc, conflict_runtime_session_id
+                   runtime_lease_expires_at_utc, conflict_runtime_session_id, credential_scopes_json
             FROM aegis_registration
             ORDER BY updated_at_utc DESC;
             """,
@@ -90,7 +90,7 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                    created_at_utc, updated_at_utc, approved_at_utc, registered_at_utc,
                    last_authenticated_at_utc, revoked_at_utc, metadata_json,
                    conflict_installation_id, active_runtime_session_id,
-                   runtime_lease_expires_at_utc, conflict_runtime_session_id
+                   runtime_lease_expires_at_utc, conflict_runtime_session_id, credential_scopes_json
             FROM aegis_registration
             WHERE registration_id = @id;
             """,
@@ -127,7 +127,7 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                    created_at_utc, updated_at_utc, approved_at_utc, registered_at_utc,
                    last_authenticated_at_utc, revoked_at_utc, metadata_json,
                    conflict_installation_id, active_runtime_session_id,
-                   runtime_lease_expires_at_utc, conflict_runtime_session_id
+                   runtime_lease_expires_at_utc, conflict_runtime_session_id, credential_scopes_json
             FROM aegis_registration
             WHERE lower(application_id) = lower(@application_id)
               AND lower(instance_id) = lower(@instance_id)
@@ -171,7 +171,7 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                 created_at_utc, updated_at_utc, approved_at_utc, registered_at_utc,
                 last_authenticated_at_utc, revoked_at_utc, metadata_json,
                 audit_json, conflict_installation_id, active_runtime_session_id,
-                runtime_lease_expires_at_utc, conflict_runtime_session_id
+                runtime_lease_expires_at_utc, conflict_runtime_session_id, credential_scopes_json
             )
             VALUES
             (
@@ -180,7 +180,7 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                 @created_at_utc, @updated_at_utc, @approved_at_utc, @registered_at_utc,
                 @last_authenticated_at_utc, @revoked_at_utc, CAST(@metadata_json AS jsonb),
                 CAST(@audit_json AS jsonb), @conflict_installation_id, @active_runtime_session_id,
-                @runtime_lease_expires_at_utc, @conflict_runtime_session_id
+                @runtime_lease_expires_at_utc, @conflict_runtime_session_id, CAST(@credential_scopes_json AS jsonb)
             )
             ON CONFLICT (registration_id) DO UPDATE SET
                 application_id = EXCLUDED.application_id,
@@ -199,11 +199,13 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                 conflict_installation_id = EXCLUDED.conflict_installation_id,
                 active_runtime_session_id = EXCLUDED.active_runtime_session_id,
                 runtime_lease_expires_at_utc = EXCLUDED.runtime_lease_expires_at_utc,
-                conflict_runtime_session_id = EXCLUDED.conflict_runtime_session_id;
+                conflict_runtime_session_id = EXCLUDED.conflict_runtime_session_id,
+                credential_scopes_json = EXCLUDED.credential_scopes_json;
             """,
             connection,
             transaction);
 
+        command.Parameters.AddWithValue("credential_scopes_json",JsonSerializer.Serialize(record.CredentialScopes));
         command.Parameters.AddWithValue("registration_id", record.RegistrationId);
         command.Parameters.AddWithValue("application_id", record.ApplicationId);
         command.Parameters.AddWithValue("instance_id", record.InstanceId);
@@ -294,6 +296,7 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
 
             await using var connection = new NpgsqlConnection(_connectionString);
             await connection.OpenAsync(ct);
+            await using var migration=await connection.BeginTransactionAsync(ct);
 
             await using var command = new NpgsqlCommand(
                 """
@@ -340,6 +343,9 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                     ON aegis_registration (lower(application_id), lower(instance_id))
                     WHERE state <> 'Purged';
 
+                ALTER TABLE aegis_registration ADD COLUMN IF NOT EXISTS credential_scopes_json jsonb NOT NULL
+                    DEFAULT '["registration.authenticate","operations.telemetry.publish","configuration.contract.publish"]'::jsonb;
+
                 CREATE INDEX IF NOT EXISTS ix_aegis_registration_state
                     ON aegis_registration (state);
 
@@ -384,9 +390,10 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
                     FOR EACH ROW
                     EXECUTE FUNCTION aegis_registration_audit_immutable();
                 """,
-                connection);
+                connection,migration);
 
             await command.ExecuteNonQueryAsync(ct);
+            await migration.CommitAsync(ct);
             _initialized = true;
         }
         finally
@@ -429,6 +436,7 @@ internal sealed class PostgresLifecycleRegistrationStore : ILifecycleRegistratio
             ConflictInstallationId = reader.IsDBNull(15) ? null : reader.GetString(15),
             ActiveRuntimeSessionId = reader.IsDBNull(16) ? null : reader.GetString(16),
             RuntimeLeaseExpiresAtUtc = reader.IsDBNull(17) ? null : reader.GetFieldValue<DateTimeOffset>(17),
+            CredentialScopes=JsonSerializer.Deserialize<string[]>(reader.GetString(19)) ?? [],
             ConflictRuntimeSessionId = reader.IsDBNull(18) ? null : reader.GetString(18)
         };
     }

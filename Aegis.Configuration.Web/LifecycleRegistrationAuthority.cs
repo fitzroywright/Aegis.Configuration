@@ -45,6 +45,7 @@ internal sealed record LifecycleRegistrationRecord(
     JsonObject? Metadata,
     List<LifecycleAuditEvent> Audit)
 {
+    public IReadOnlyList<string> CredentialScopes { get; init; } = ["registration.authenticate", "operations.telemetry.publish", "configuration.contract.publish"];
     public string? ConflictInstallationId { get; init; }
     public string? ActiveRuntimeSessionId { get; init; }
     public DateTimeOffset? RuntimeLeaseExpiresAtUtc { get; init; }
@@ -310,7 +311,8 @@ internal sealed class LifecycleRegistrationAuthority
         string credential,
         string runtimeSessionId,
         string? correlationId,
-        CancellationToken ct)
+        CancellationToken ct,
+        string requiredScope = "registration.authenticate")
     {
         await _gate.WaitAsync(ct);
         try
@@ -320,6 +322,12 @@ internal sealed class LifecycleRegistrationAuthority
 
             if (record is null)
                 return null;
+
+            if (record.State == LifecycleRegistrationState.Revoked) return record;
+            var registered = new Common.Security.Services.MachineCredential(record.RegistrationId,record.ApplicationId,record.InstanceId,
+                record.CredentialHash ?? "", record.CredentialScopes,DateTimeOffset.MaxValue,record.RevokedAtUtc);
+            if(new Common.Security.Services.MachineCredentialVerifier(new RegistrationProofStore(registered)).Verify(
+                record.RegistrationId,credential,record.ApplicationId,record.InstanceId,requiredScope) is null) return null;
 
             if (!string.Equals(
                     record.InstallationId,
@@ -352,12 +360,6 @@ internal sealed class LifecycleRegistrationAuthority
 
             if (record.State == LifecycleRegistrationState.Revoked)
                 return record;
-
-            if (string.IsNullOrWhiteSpace(record.CredentialHash) ||
-                !VerifyCredentialHash(record.CredentialHash, credential))
-            {
-                return null;
-            }
 
             if (string.IsNullOrWhiteSpace(runtimeSessionId))
                 return null;
@@ -1027,66 +1029,10 @@ internal sealed class LifecycleRegistrationAuthority
         }
     }
 
-    private static string HashCredential(string credential)
-    {
-        const int iterations = 210_000;
+    private sealed class RegistrationProofStore(Common.Security.Services.MachineCredential credential) : Common.Security.Services.IMachineCredentialStore
+    { public Common.Security.Services.MachineCredential? FindCredential(string id) => id==credential.CredentialId ? credential : null; }
 
-        byte[] salt = RandomNumberGenerator.GetBytes(32);
-        byte[] hash = Rfc2898DeriveBytes.Pbkdf2(
-            credential,
-            salt,
-            iterations,
-            HashAlgorithmName.SHA256,
-            32);
-
-        return "PBKDF2-SHA256$" +
-               iterations +
-               "$" +
-               Convert.ToBase64String(salt) +
-               "$" +
-               Convert.ToBase64String(hash);
-    }
-
-    private static bool VerifyCredentialHash(
-        string encoded,
-        string credential)
-    {
-        try
-        {
-            string[] parts = encoded.Split('$');
-
-            if (parts.Length != 4 ||
-                !string.Equals(
-                    parts[0],
-                    "PBKDF2-SHA256",
-                    StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            int iterations = int.Parse(
-                parts[1],
-                System.Globalization.CultureInfo.InvariantCulture);
-
-            byte[] salt = Convert.FromBase64String(parts[2]);
-            byte[] expected = Convert.FromBase64String(parts[3]);
-
-            byte[] actual = Rfc2898DeriveBytes.Pbkdf2(
-                credential,
-                salt,
-                iterations,
-                HashAlgorithmName.SHA256,
-                expected.Length);
-
-            return CryptographicOperations.FixedTimeEquals(
-                expected,
-                actual);
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    private static string HashCredential(string credential) => Common.Security.Services.MachineCredentialProof.Hash(credential);
 
     private static bool IdentityMatches(
         LifecycleRegistrationRecord record,

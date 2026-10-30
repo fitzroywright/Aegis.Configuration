@@ -66,7 +66,7 @@ builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web
 builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web.ConfigurationRegistrationAuthorityReadDiagnosticLevelTest>();
 builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web.ConfigurationRegistrationConsistencyDiagnosticLevelTest>();
 builder.Services.AddSingleton<IDiagnosticLevelLocalTest, Aegis.Configuration.Web.ConfigurationRegistrationAuditDiagnosticLevelTest>();
-builder.Services.AddSuiteSecurity();
+builder.Services.AddSuiteSecurity(builder.Configuration, builder.Environment);
 builder.Services.AddHttpClient("operations-registration", client => client.Timeout = TimeSpan.FromSeconds(10));
 builder.Services.AddHttpClient("registration-lifecycle-telemetry", client => client.Timeout = TimeSpan.FromSeconds(5));
 builder.Services.AddSingleton<RegistrationLifecycleTelemetryPublisher>();
@@ -194,6 +194,10 @@ app.Use(async (context, next) =>
     }
 });
 app.UseRateLimiter();
+app.UseAuthentication();
+app.UseRateLimiter();
+app.InitializeCommonAccounts();
+app.MapCommonSuiteIdentityEndpoints();
 app.UseSuiteSecurity();
 app.MapSuiteSecurity();
 app.MapLifecycleRegistration();
@@ -397,7 +401,7 @@ app.MapPost("/api/contracts/register", async (HttpContext context, ApplicationCo
             credential,
             runtimeSessionId,
             attemptId,
-            ct);
+            ct, "configuration.contract.publish");
 
         if (authenticated is null || authenticated.State != LifecycleRegistrationState.Registered)
         {

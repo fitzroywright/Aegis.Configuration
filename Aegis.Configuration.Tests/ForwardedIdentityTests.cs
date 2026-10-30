@@ -1,8 +1,11 @@
-using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
+using Common.Security.Abstractions;
+using Common.Security.Hosting;
+using Common.Security.Integration;
+using Common.Security.Models;
+using Common.Security.Services;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
@@ -13,35 +16,49 @@ public sealed class ForwardedIdentityTests
     const string SigningKey = "test-signing-key-for-forwarded-identities";
 
     [Fact]
-    public void Signed_operations_identity_takes_precedence_over_stale_configuration_cookie()
+    public void CurrentSignedHandoffTakesPrecedenceAndCannotReplayOrFallBackToCookie()
     {
-        using var services = new ServiceCollection().BuildServiceProvider();
-        var security = new SuiteSecurity(new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> {
-                ["SuiteSecurity:SigningKey"] = SigningKey }).Build(),
-            new TestEnvironment(), services);
-        var context = new DefaultHttpContext();
-        context.Request.Headers.Cookie = "Aegis.Configuration.Session=" + Ticket("viewer", ["Configuration.View"]);
-        context.Request.Headers["X-Aegis-Suite-Handoff"] = Ticket("manager", ["Configuration.View", "Configuration.Manage"]);
-        var identity = security.ReadRequest(context.Request);
-        Assert.Equal("manager", identity!.UserName);
-        Assert.Contains("Configuration.Manage", identity.Permissions);
-        context.Request.Headers["X-Aegis-Suite-Handoff"] = Ticket("viewer", ["Configuration.View"]);
-        Assert.DoesNotContain("Configuration.Manage", security.ReadRequest(context.Request)!.Permissions);
-        context.Request.Headers["X-Aegis-Suite-Handoff"] = "invalid";
-        Assert.Null(security.ReadRequest(context.Request));
-        context.Request.Headers.Remove("X-Aegis-Suite-Handoff");
-        Assert.Equal("viewer", security.ReadRequest(context.Request)!.UserName);
-    }
-
-    private static string Ticket(string name, string[] permissions)
-    {
-        byte[] payload = JsonSerializer.SerializeToUtf8Bytes(new SuiteTicket(
-            name, name, "User", permissions, "Aegis.Configuration",
-            DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeSeconds(), Guid.NewGuid().ToString("N")));
-        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(SigningKey));
-        return WebEncoders.Base64UrlEncode(payload) + "." +
-            WebEncoders.Base64UrlEncode(hmac.ComputeHash(payload));
+        string path = Path.Combine(Path.GetTempPath(), "configuration-security-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var accounts = new RelationalAccountStore(() => new SqliteConnection($"Data Source={path};Pooling=False"), "control-plane");
+            accounts.EnsureSchema();
+            var viewerKey = new ExternalIdentityKey("active-directory", "directory", "viewer-guid");
+            var managerKey = new ExternalIdentityKey("active-directory", "directory", "manager-guid");
+            var viewer = accounts.Create(new("viewer-account", "viewer", "Viewer", AuthenticationProviderKind.ActiveDirectory,
+                AccountPopulation.Staff, SecurityAccountStatus.Active, viewerKey), "test-administrator");
+            var manager = accounts.Create(new("manager-account", "manager", "Manager", AuthenticationProviderKind.ActiveDirectory,
+                AccountPopulation.Staff, SecurityAccountStatus.Active, managerKey), "test-administrator");
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>
+            {
+                ["SuiteSecurity:SigningKey"] = SigningKey,
+                ["SuiteSecurity:AccountRoles:viewer-account:0"] = "Reader",
+                ["SuiteSecurity:AccountRoles:manager-account:0"] = "Administrator"
+            }).Build();
+            using var services = new ServiceCollection().AddSingleton(accounts).BuildServiceProvider();
+            var security = new SuiteSecurity(configuration, new TestEnvironment(), services, accounts,
+                new("Aegis.Configuration", "Aegis.Configuration.Session", new Dictionary<string,string[]>
+                { ["Reader"] = ["Configuration.View"], ["Administrator"] = ["Configuration.View","Configuration.Manage"] }));
+            var cookie = security.CreatePrincipal(new("viewer", "Viewer", "Reader", ["Configuration.View"], viewer.Id,
+                viewer.SessionVersion, viewerKey, AuthenticationProviderKind.ActiveDirectory, DateTimeOffset.UtcNow));
+            string ticket = new SessionTicketProtector(Encoding.UTF8.GetBytes(SigningKey)).Create(manager.Id,
+                "Aegis.Configuration", manager.SessionVersion, TimeSpan.FromSeconds(45), "handoff", managerKey);
+            DefaultHttpContext Request(string? token)
+            {
+                var context = new DefaultHttpContext { User = cookie };
+                if (token is not null) context.Request.Headers["X-Aegis-Suite-Handoff"] = token;
+                return context;
+            }
+            var current = Request(ticket);
+            Assert.Equal("manager", security.Read(current.Request)!.UserName);
+            Assert.Contains("Configuration.Manage", security.Read(current.Request)!.Permissions);
+            Assert.Null(security.Read(Request(ticket).Request)); // single use, no fallback to viewer cookie
+            Assert.Null(security.Read(Request("invalid").Request));
+            Assert.Equal("viewer", security.Read(Request(null).Request)!.UserName);
+            accounts.SetStatus(viewer.Id, SecurityAccountStatus.Disabled, "test-administrator");
+            Assert.Null(security.Read(Request(null).Request));
+        }
+        finally { File.Delete(path); }
     }
 
     private sealed class TestEnvironment : IHostEnvironment
