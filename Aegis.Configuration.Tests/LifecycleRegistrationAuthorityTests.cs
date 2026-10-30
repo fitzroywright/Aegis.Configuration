@@ -638,6 +638,17 @@ public sealed class LifecycleRegistrationAuthorityTests
         Assert.Equal(LifecycleRegistrationState.Registered,allowed!.State);
     }
 
+    [Fact]
+    public async Task RegisteredIdentityCaseAliasesPreserveTheirExistingLookupPolicyWithoutWeakeningCredentialProof()
+    {
+        var store=new InMemoryLifecycleRegistrationStore();var authority=CreateAuthority(store);
+        var registered=await RegisterAsync(authority,"installation");
+        var valid=await authority.AuthenticateAsync("aegis.hello","production","installation",registered.Credential,"session","correlation",TestContext.Current.CancellationToken);
+        Assert.Equal(LifecycleRegistrationState.Registered,valid!.State);
+        Assert.Equal(registered.Record.ApplicationId,valid.ApplicationId);
+        Assert.Null(await authority.AuthenticateAsync("aegis.hello","production","installation","wrong-secret","session","correlation",TestContext.Current.CancellationToken));
+    }
+
     private static LifecycleRegistrationAuthority CreateAuthority(
         ILifecycleRegistrationStore store)
     {

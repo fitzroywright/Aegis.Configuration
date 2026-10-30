@@ -327,7 +327,7 @@ internal sealed class LifecycleRegistrationAuthority
             var registered = new Common.Security.Services.MachineCredential(record.RegistrationId,record.ApplicationId,record.InstanceId,
                 record.CredentialHash ?? "", record.CredentialScopes,DateTimeOffset.MaxValue,record.RevokedAtUtc);
             if(new Common.Security.Services.MachineCredentialVerifier(new RegistrationProofStore(registered)).Verify(
-                record.RegistrationId,credential,applicationId,instanceId,requiredScope) is null) return null;
+                record.RegistrationId,credential,record.ApplicationId,record.InstanceId,requiredScope) is null) return null;
 
             if (!string.Equals(
                     record.InstallationId,
